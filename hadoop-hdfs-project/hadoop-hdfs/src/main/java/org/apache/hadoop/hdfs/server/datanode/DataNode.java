@@ -290,6 +290,8 @@ public class DataNode extends ReconfigurableBase
   public final static String EMPTY_DEL_HINT = "";
   final AtomicInteger xmitsInProgress = new AtomicInteger();
   Daemon dataXceiverServer = null;
+  ShortCircuitWriteServer scwServer = null;
+  Thread scwServerThread;
   DataXceiverServer xserver = null;
   Daemon localDataXceiverServer = null;
   ShortCircuitRegistry shortCircuitRegistry = null;
@@ -737,9 +739,9 @@ public class DataNode extends ReconfigurableBase
     if (name == null) {
       name = DNS.getDefaultHost(
           config.get(DFS_DATANODE_DNS_INTERFACE_KEY,
-                     DFS_DATANODE_DNS_INTERFACE_DEFAULT),
+              DFS_DATANODE_DNS_INTERFACE_DEFAULT),
           config.get(DFS_DATANODE_DNS_NAMESERVER_KEY,
-                     DFS_DATANODE_DNS_NAMESERVER_DEFAULT));
+              DFS_DATANODE_DNS_NAMESERVER_DEFAULT));
     }
     return name;
   }
@@ -874,7 +876,7 @@ public class DataNode extends ReconfigurableBase
       directoryScanner.start();
     } else {
       LOG.info("Periodic Directory Tree Verification scan is disabled because " +
-                   reason);
+          reason);
     }
   }
   
@@ -883,7 +885,26 @@ public class DataNode extends ReconfigurableBase
       directoryScanner.shutdown();
     }
   }
-  
+
+  private void  initShortCircuitWriteServer() {
+//    this.scwThreadGroup = new ThreadGroup("ShortCircuitWriteServer");
+    scwServer = new ShortCircuitWriteServer(this, conf);
+  }
+
+  private void startShortCircuitWriteServer() {
+    scwServerThread = new Thread(scwServer);
+    scwServerThread.start();
+  }
+
+  private void stopShortCircuitWriteServer() {
+    scwServer.shutdownServer();
+    try {
+      Thread.sleep(1000);
+    } catch (InterruptedException e) {
+    }
+    //scwServerThread.interrupt();
+  }
+
   private void initDataXceiver(Configuration conf) throws IOException {
     // find free port or use privileged port provided
     TcpPeerServer tcpPeerServer;
@@ -1105,6 +1126,7 @@ public class DataNode extends ReconfigurableBase
     // global DN settings
     registerMXBean();
     initDataXceiver(conf);
+    initShortCircuitWriteServer();
     startInfoServer(conf);
     pauseMonitor = new JvmPauseMonitor(conf);
     pauseMonitor.start();
@@ -1656,6 +1678,8 @@ public class DataNode extends ReconfigurableBase
         // Ignore, since the out of band messaging is advisory.
       }
     }
+
+    stopShortCircuitWriteServer();
 
     // Interrupt the checkDiskErrorThread and terminate it.
     if(this.checkDiskErrorThread != null) {
@@ -2209,6 +2233,8 @@ public class DataNode extends ReconfigurableBase
     }
     ipcServer.start();
     startPlugins(conf);
+
+    startShortCircuitWriteServer();
   }
 
   /**
