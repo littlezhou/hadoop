@@ -111,6 +111,12 @@ class ShortCircuitWriteServer implements Runnable {
       private String path;
       private Path filePath;
 
+    private long fileIndex;
+
+    long blockID;
+    long blockGS;
+
+
       WriteHandler(SocketChannel sc) {
           this.sc = sc;
           bb = ByteBuffer.allocateDirect(BUFFER_SIZE);
@@ -133,6 +139,9 @@ class ShortCircuitWriteServer implements Runnable {
 //          dataNode.metrics.addWriteBlockOp(elapsed());
 //          dataNode.metrics.incrWritesFromClient(false, size);
       }
+    private void updateInDataNode(int blockid) {
+
+    }
 
       private void writeFile() {
         int readed = 0;
@@ -143,15 +152,9 @@ class ShortCircuitWriteServer implements Runnable {
             try {
                 InputStream is = sc.socket().getInputStream();
                 DataInputStream dis = new DataInputStream(is);
-                int pathLen = dis.readInt();
-                if (pathLen <= 0) {
-                    sc.close();
-                    return; // invalid len
-                }
-                byte[] pathBytes = new byte[pathLen];
-                dis.readFully(pathBytes);
-                path = new String(pathBytes, "UTF-8");
-                filePath = Paths.get("/tmp/" + path);
+              blockID = dis.readLong();
+              blockGS = dis.readLong();
+
                 File file = new File("/tmp", path);
                 fos = new FileOutputStream(file, false);
                 fc = fos.getChannel();
@@ -160,7 +163,7 @@ class ShortCircuitWriteServer implements Runnable {
 
                 while (true) {
                     readed = sc.read(bb);
-                    if (readed != -1) {
+                    if (readed > 0) {
                         bb.flip();
                         while (bb.hasRemaining()) {
                             fc.write(bb);
@@ -174,9 +177,9 @@ class ShortCircuitWriteServer implements Runnable {
 
                 fos.close();
                 sc.close();
-                System.out.println("Write file " + file + " finished with " + dataLen + " bytes!");
+                //System.out.println("Write file " + file + " finished with " + dataLen + " bytes!");
             } catch (IOException e) {
-                System.out.println("Write file " + filePath + " " + dataLen);
+                LOG.error("Write file " + filePath + " " + dataLen);
                 e.printStackTrace();
             }
         }

@@ -1259,6 +1259,56 @@ class FsDatasetImpl implements FsDatasetSpi<FsVolumeImpl> {
     }
   }
 
+  public synchronized ReplicaHandler createRbwXXX(
+      StorageType storageType, ExtendedBlock b, boolean allowLazyPersist)
+      throws IOException {
+    storageType = StorageType.DEFAULT;
+
+
+    ReplicaInfo replicaInfo = volumeMap.get(b.getBlockPoolId(),
+        b.getBlockId());
+    if (replicaInfo != null) {
+      throw new ReplicaAlreadyExistsException("Block " + b +
+          " already exists in state " + replicaInfo.getState() +
+          " and thus cannot be created.");
+    }
+    // create a new block
+    FsVolumeReference ref;
+    while (true) {
+      try {
+        if (allowLazyPersist) {
+          // First try to place the block on a transient volume.
+          ref = volumes.getNextTransientVolume(b.getNumBytes());
+          datanode.getMetrics().incrRamDiskBlocksWrite();
+        } else {
+          ref = volumes.getNextVolume(storageType, b.getNumBytes());
+        }
+      } catch (DiskOutOfSpaceException de) {
+        if (allowLazyPersist) {
+          datanode.getMetrics().incrRamDiskBlocksWriteFallback();
+          allowLazyPersist = false;
+          continue;
+        }
+        throw de;
+      }
+      break;
+    }
+    FsVolumeImpl v = (FsVolumeImpl) ref.getVolume();
+    // create an rbw file to hold block in the designated volume
+    File f;
+    try {
+      f = v.createRbwFile(b.getBlockPoolId(), b.getLocalBlock());
+    } catch (IOException e) {
+      IOUtils.cleanup(null, ref);
+      throw e;
+    }
+
+    ReplicaBeingWritten newReplicaInfo = new ReplicaBeingWritten(b.getBlockId(),
+        b.getGenerationStamp(), v, f.getParentFile(), b.getNumBytes());
+    volumeMap.add(b.getBlockPoolId(), newReplicaInfo);
+    return new ReplicaHandler(newReplicaInfo, ref);
+  }
+
   @Override // FsDatasetSpi
   public synchronized ReplicaHandler createRbw(
       StorageType storageType, ExtendedBlock b, boolean allowLazyPersist)
