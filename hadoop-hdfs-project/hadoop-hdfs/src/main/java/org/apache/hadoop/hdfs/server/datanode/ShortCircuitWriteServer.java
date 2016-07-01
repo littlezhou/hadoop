@@ -54,6 +54,19 @@ class ShortCircuitWriteServer implements Runnable {
         List<? extends FsVolumeSpi> volumes = fsDataset.getVolumes();
         String localDirs = config.get("dfs.datanode.data.dir");
         // File blockDir = DatanodeUtil.idToBlockDir(finalizedDir, b.getBlockId());
+      BPOfferService[] bpos = dataNode.getAllBpOs();
+      String blockPoolID = bpos[0].getBlockPoolId();
+
+      File[] finalizedDirs = new File[volumes.size()];
+      try {
+        for (int i = 0; i < volumes.size(); i++) {
+          finalizedDirs[i] = volumes.get(i).getFinalizedDir(blockPoolID);
+          volumes.get(i).getBasePath()
+        }
+
+      } catch (IOException e) {
+        
+      }
     }
 
     public void shutdownServer() {
