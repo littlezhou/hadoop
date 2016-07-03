@@ -124,7 +124,7 @@ import com.google.common.collect.Sets;
  *
  ***************************************************/
 @InterfaceAudience.Private
-class FsDatasetImpl implements FsDatasetSpi<FsVolumeImpl> {
+public class FsDatasetImpl implements FsDatasetSpi<FsVolumeImpl> {
   static final Log LOG = LogFactory.getLog(FsDatasetImpl.class);
   private final static boolean isNativeIOAvailable;
   static {
@@ -1578,6 +1578,19 @@ class FsDatasetImpl implements FsDatasetSpi<FsVolumeImpl> {
       return;
     }
     finalizeReplica(b.getBlockPoolId(), replicaInfo);
+  }
+
+  public synchronized FinalizedReplica finalizeScwBlock(String bpid, ReplicaInfo replica, File f) throws IOException {
+    FsVolumeImpl v = (FsVolumeImpl) replica.getVolume();
+    if (v == null) {
+      throw new IOException("No volume for temporary file " + f +
+          " for block " + replica);
+    }
+    File dest = v.addFinalizedBlock(bpid, replica, f, replica.getBytesReserved());
+    FinalizedReplica newReplicaInfo = new FinalizedReplica(replica, v, dest.getParentFile());
+    volumeMap.add(bpid, newReplicaInfo);
+
+    return newReplicaInfo;
   }
   
   private synchronized FinalizedReplica finalizeReplica(String bpid,
