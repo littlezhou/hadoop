@@ -78,7 +78,7 @@ class ShortCircuitWriteServer implements Runnable {
         for (int i = 0; i < volumes.size(); i++) {
           finalizedDirs[i] = volumes.get(i).getFinalizedDir(blockPoolID);
           baseDirs[i] = volumes.get(i).getBasePath();
-          blockTempDirs[i] = baseDirs[i] + "/" + BLOCK_TMP_DIR;
+          blockTempDirs[i] = baseDirs[i]; // + "/" + BLOCK_TMP_DIR;
           storageIDs[i] = volumes.get(i).getStorageID();
         }
       } catch (IOException e) {
@@ -150,8 +150,9 @@ class ShortCircuitWriteServer implements Runnable {
     private Path blockFinalizedPath;
 
     private File blockTempFile;
-    private File blockFinalizedFile;
-    private File blockMetaTempFile, blockMetaFinalizedFile;
+    private File blockMetaTempFile;
+    //private File blockFinalizedFile;
+    //private File  blockMetaFinalizedFile;
 
     private long dataLen = 0;
 
@@ -186,6 +187,7 @@ class ShortCircuitWriteServer implements Runnable {
       writeFile();    // write block data file
       writeMetaFile();
 
+      /*
       int renameState = 0;
       File blockFinalizedDir;
       try {
@@ -202,9 +204,10 @@ class ShortCircuitWriteServer implements Runnable {
           blockFinalizedFile.delete();
         }
         throw e;
-      }
+      } */
 
       ReplicaBeingWritten rbwReplica = new ReplicaBeingWritten(blockID, blockGS, volumes.get(volIndex), new File(blockTempDirs[volIndex]), 0);
+      rbwReplica.setNumBytes(dataLen);
 
       //FinalizedReplica replica = new FinalizedReplica(blockID, blockFinalizedFile.length(), blockGS, volumes.get(volIndex), blockFinalizedDir.getAbsoluteFile());
 
@@ -223,7 +226,7 @@ class ShortCircuitWriteServer implements Runnable {
     private void writeMetaFile() throws IOException {
       blockMetaTempFile = new File(DatanodeUtil.getMetaName(blockTempFile.getAbsolutePath(), blockGS));
       try {
-        FileOutputStream osMeta = new FileOutputStream(blockTempFile, false);
+        FileOutputStream osMeta = new FileOutputStream(blockMetaTempFile, false);
         osMeta.write(META_DATA);
         osMeta.close();
       } catch (FileNotFoundException ne) {
@@ -248,7 +251,7 @@ class ShortCircuitWriteServer implements Runnable {
                 fos = new FileOutputStream(file, false);
                 fc = fos.getChannel();
                 //fc = FileChannel.open(filePath, EnumSet.of(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE));
-                LOG.info("[SCW] Writing file " + file + " ...");
+                LOG.debug("[SCW] Writing file " + file + " ...");
 
                 while (true) {
                     readed = sc.read(bb);
@@ -266,7 +269,7 @@ class ShortCircuitWriteServer implements Runnable {
 
                 fos.close();
                 sc.close();
-                LOG.info("[SCW] Write file " + file + " finished with " + dataLen + " bytes!");
+                LOG.debug("[SCW] Write file " + file + " finished with " + dataLen + " bytes!");
             } catch (IOException e) {
                 LOG.error("[SCW] Write file " + filePath + " " + dataLen, e);
                 //e.printStackTrace();

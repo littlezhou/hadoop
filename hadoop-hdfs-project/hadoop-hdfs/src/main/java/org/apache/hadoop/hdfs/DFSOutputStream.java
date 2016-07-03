@@ -19,19 +19,14 @@ package org.apache.hadoop.hdfs;
 
 import static org.apache.hadoop.hdfs.protocol.proto.DataTransferProtos.Status.SUCCESS;
 
-import java.io.BufferedOutputStream;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InterruptedIOException;
-import java.io.OutputStream;
+import java.io.*;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
+import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumSet;
@@ -43,18 +38,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import com.google.common.io.ByteArrayDataOutput;
 import org.apache.hadoop.HadoopIllegalArgumentException;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.crypto.CryptoProtocolVersion;
-import org.apache.hadoop.fs.CanSetDropBehind;
-import org.apache.hadoop.fs.CreateFlag;
-import org.apache.hadoop.fs.FSOutputSummer;
-import org.apache.hadoop.fs.FileAlreadyExistsException;
-import org.apache.hadoop.fs.FileEncryptionInfo;
-import org.apache.hadoop.fs.ParentNotDirectoryException;
+import org.apache.hadoop.fs.*;
 import org.apache.hadoop.fs.permission.FsPermission;
-import org.apache.hadoop.fs.StorageType;
-import org.apache.hadoop.fs.Syncable;
 import org.apache.hadoop.hdfs.client.HdfsDataOutputStream;
 import org.apache.hadoop.hdfs.client.HdfsDataOutputStream.SyncFlag;
 import org.apache.hadoop.hdfs.protocol.BlockStoragePolicy;
@@ -117,7 +106,7 @@ import com.google.common.cache.RemovalNotification;
  *
  * The client application writes data that is cached internally by
  * this stream. Data is broken up into packets, each packet is
- * typically 64K in size. A packet comprises of chunks. Each chunk
+ * typically 64K in size. A packet comprises of chunks. Each chunkhttp://ask.csdn.net/questions/164740
  * is typically 512 bytes and has an associated checksum with it.
  *
  * When a client application fills up the currentPacket, it is
@@ -1282,6 +1271,71 @@ public class DFSOutputStream extends FSOutputSummer
       return lb;
     }
 
+    private LocatedBlock nextBlockOutputStreamRawSocket() throws IOException {
+      LocatedBlock lb = null;
+      DatanodeInfo[] nodes = null;
+      StorageType[] storageTypes = null;
+      int count = dfsClient.getConf().nBlockWriteRetry;
+      boolean success = false;
+      ExtendedBlock oldBlock = block;
+      do {
+        hasError = false;
+        lastException.set(null);
+        errorIndex = -1;
+        success = false;
+
+        DatanodeInfo[] excluded =
+            excludedNodes.getAllPresent(excludedNodes.asMap().keySet())
+                .keySet()
+                .toArray(new DatanodeInfo[0]);
+        block = oldBlock;
+        lb = locateFollowingBlock(excluded.length > 0 ? excluded : null);
+        block = lb.getBlock();
+        block.setNumBytes(0);
+        bytesSent = 0;
+        accessToken = lb.getBlockToken();
+        nodes = lb.getLocations();
+        storageTypes = lb.getStorageTypes();
+
+        //
+        // Connect to first DataNode in the list.
+        //
+        success = createBlockOutputStreamRawSocket(nodes, storageTypes, lb.getBlock().getGenerationStamp(), false);
+
+        if (!success) {
+          DFSClient.LOG.info("Abandoning " + block);
+          dfsClient.namenode.abandonBlock(block, fileId, src,
+              dfsClient.clientName);
+          block = null;
+          DFSClient.LOG.info("Excluding datanode " + nodes[errorIndex]);
+          excludedNodes.put(nodes[errorIndex], nodes[errorIndex]);
+        }
+      } while (!success && --count >= 0);
+
+      if (!success) {
+        throw new IOException("Unable to create new block.");
+      }
+
+      DataOutputStream dos = new DataOutputStream(s.getOutputStream());
+      dos.writeLong(block.getBlockId());
+      dos.writeLong(block.getGenerationStamp());
+      dos.flush();
+
+      return lb;
+    }
+
+    private boolean createBlockOutputStreamRawSocket(DatanodeInfo[] nodes,
+                                            StorageType[] nodeStorageTypes, long newGS, boolean recoveryFlag)
+        throws IOException {
+      persistBlocks.set(true);
+      assert null == s : "Previous socket unclosed";
+      String ip = nodes[0].getIpAddr();
+      SocketAddress address = new InetSocketAddress(ip, 8899);
+      SocketChannel channel = SocketChannel.open(address);
+      s = channel.socket();
+      return true;
+    }
+
     // connects to the first datanode in the pipeline
     // Returns true if success, otherwise return failure.
     //
@@ -1683,7 +1737,7 @@ public class DFSOutputStream extends FSOutputSummer
       Preconditions.checkNotNull(stat, "HdfsFileStatus should not be null!");
       final DFSOutputStream out = new DFSOutputStream(dfsClient, src, stat,
           flag, progress, checksum, favoredNodes);
-      out.start();
+      out.startCreate();
       return out;
     } finally {
       scope.close();
@@ -1822,8 +1876,15 @@ public class DFSOutputStream extends FSOutputSummer
     write(ByteBuffer.wrap(b, off, len));
   }
 
-  private void write(ByteBuffer buf) throws IOException {
+  public void write(ByteBuffer buf) throws IOException {
+    int size = buf.remaining();
+    SocketChannel sc = s.getChannel();
+    while (buf.hasRemaining()) {
+      s.getChannel().write(buf);
+    }
 
+    ExtendedBlock b = streamer.getBlock();
+    b.setNumBytes(b.getNumBytes() + size);
   }
 
   // @see FSOutputSummer#writeChunk()
@@ -2185,13 +2246,17 @@ public class DFSOutputStream extends FSOutputSummer
     }
   }
 
-  private synchronized void start() {
+  private synchronized void startCreate() {
     //streamer.start();
     try {
-      streamer.nextBlockOutputStream();
+      streamer.nextBlockOutputStreamRawSocket();
     } catch (IOException e) {
       e.printStackTrace();
     }
+  }
+
+  private synchronized void start() {
+    streamer.start();
   }
   
   /**

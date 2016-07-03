@@ -41,6 +41,11 @@ public class TestFastWrite {
         buffer.flip();
 
         try {
+          try {
+            Thread.sleep(5000);
+          } catch (Exception e) {
+
+          }
             Path myFile = new Path("/test/dir/file");
             FSDataOutputStream out = fs.create(myFile, (short)1);
             out.write(buffer);
