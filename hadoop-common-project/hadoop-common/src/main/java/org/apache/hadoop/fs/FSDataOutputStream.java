@@ -17,21 +17,27 @@
  */
 package org.apache.hadoop.fs;
 
-import java.io.*;
+import org.apache.hadoop.classification.InterfaceAudience;
+import org.apache.hadoop.classification.InterfaceStability;
+
 import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.FilterOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-
-import org.apache.hadoop.classification.InterfaceAudience;
-import org.apache.hadoop.classification.InterfaceStability;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.channels.SocketChannel;
 
 /** Utility that wraps a {@link OutputStream} in a {@link DataOutputStream}.
  */
 @InterfaceAudience.Public
 @InterfaceStability.Stable
 public class FSDataOutputStream extends DataOutputStream
-    implements Syncable, CanSetDropBehind {
+    implements Syncable, CanSetDropBehind, ByteBufferWritable {
   private final OutputStream wrappedStream;
 
   private static class PositionCache extends FilterOutputStream {
@@ -116,6 +122,13 @@ public class FSDataOutputStream extends DataOutputStream
     return wrappedStream;
   }
 
+  @Override
+  public void write(ByteBuffer buf) throws IOException {
+    if (wrappedStream instanceof ByteBufferWritable) {
+      ((ByteBufferWritable) wrappedStream).write(buf);
+    }
+  }
+
   @Override  // Syncable
   @Deprecated
   public void sync() throws IOException {
@@ -151,4 +164,39 @@ public class FSDataOutputStream extends DataOutputStream
           "not support setting the drop-behind caching setting.");
     }
   }
+
+  /*public static void transfer() throws IOException {
+    SocketAddress address = new InetSocketAddress("10.239.160.43", 8899);
+    String fileName = "/tmp/grayfile.dat";
+    writeRemote(fileName, address);
+  }
+
+  public static void writeRemote(String fileName, SocketAddress address) throws IOException {
+    int bufferLen = 4 * 1024 * 1024;
+    ByteBuffer buffer = ByteBuffer.allocateDirect(bufferLen);
+    SocketChannel channel = SocketChannel.open(address);
+
+    File file = new File(fileName);
+    byte[] fileNameBytes = file.getName().getBytes();
+    ByteBuffer fileNameBuffer = ByteBuffer.allocate(4 + fileNameBytes.length);
+    fileNameBuffer.putInt(fileNameBytes.length);
+    fileNameBuffer.put(fileNameBytes);
+    fileNameBuffer.flip();
+    channel.write(fileNameBuffer);
+
+    FileInputStream fis = new FileInputStream(fileName);
+    FileChannel fileChannel = fis.getChannel();
+    while (fileChannel.read(buffer) > 0) {
+      buffer.flip();
+      channel.write(buffer);
+      buffer.flip();
+    }
+
+    fileChannel.close();
+    channel.close();
+  }
+
+  public static void main(String [] args) throws IOException {
+    transfer();
+  } */
 }

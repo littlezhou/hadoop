@@ -30,6 +30,7 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -135,7 +136,7 @@ import com.google.common.cache.RemovalNotification;
 ****************************************************************/
 @InterfaceAudience.Private
 public class DFSOutputStream extends FSOutputSummer
-    implements Syncable, CanSetDropBehind {
+    implements Syncable, CanSetDropBehind, ByteBufferWritable {
   private final long dfsclientSlowLogThresholdMs;
   /**
    * Number of times to retry creating a file when there are transient 
@@ -1807,6 +1808,24 @@ public class DFSOutputStream extends FSOutputSummer
     }
   }
 
+  @Override
+  public synchronized void write(int b) throws IOException {
+    ByteBuffer buf = ByteBuffer.allocate(1);
+    buf.put((byte) (b & 0xFF));
+    buf.flip();
+    write(buf);
+  }
+
+  @Override
+  public synchronized void write(byte b[], int off, int len)
+      throws IOException {
+    write(ByteBuffer.wrap(b, off, len));
+  }
+
+  private void write(ByteBuffer buf) throws IOException {
+
+  }
+
   // @see FSOutputSummer#writeChunk()
   @Override
   protected synchronized void writeChunk(byte[] b, int offset, int len,
@@ -2167,7 +2186,12 @@ public class DFSOutputStream extends FSOutputSummer
   }
 
   private synchronized void start() {
-    streamer.start();
+    //streamer.start();
+    try {
+      streamer.nextBlockOutputStream();
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
   }
   
   /**
