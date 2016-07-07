@@ -133,11 +133,17 @@ class ShortCircuitWriteServer implements Runnable {
       LOG.error("[SCW] Failed in SCW handleAccept:", e);
     }
   }
+  private static boolean used = false;
 
   @Override
   public void run() {
     init();
-    startServer(8899);
+    if(!used){
+      used = true;
+      startServer(8899);
+    }else{
+      startServer(8900);
+    }
   }
 
   class WriteHandler implements Runnable {
@@ -224,11 +230,16 @@ class ShortCircuitWriteServer implements Runnable {
           blockTempFile = new File(blockTempDirs[volIndex], "blk_" + blockID);
 
           if (tempBlockID < 0) {
-            byte[] fn = blockTempFile.getAbsolutePath().getBytes();
+            byte[] fn = blockTempFile.getAbsolutePath().getBytes("UTF-8");
             ByteBuffer len = ByteBuffer.allocate(4).putInt(fn.length);
             len.flip();
-            sc.write(len);
-            sc.write(ByteBuffer.wrap(fn));
+            while(len.hasRemaining()){
+              sc.write(len);
+            }
+            ByteBuffer pathBuffer = ByteBuffer.wrap(fn);
+            while(pathBuffer.hasRemaining()){
+              sc.write(pathBuffer);
+            }
             len.flip();
             sc.read(len);
             return;

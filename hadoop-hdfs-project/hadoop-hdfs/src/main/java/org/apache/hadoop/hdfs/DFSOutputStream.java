@@ -26,9 +26,7 @@ import java.net.Socket;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
-import java.nio.channels.ClosedChannelException;
-import java.nio.channels.FileChannel;
-import java.nio.channels.SocketChannel;
+import java.nio.channels.*;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.util.ArrayList;
@@ -2492,12 +2490,13 @@ public class DFSOutputStream extends FSOutputSummer
       socketChannel = socket1.getChannel();
       createLocalWriteFileChannel(socketChannel);
 
-      Socket socket2 = createWriteSocketChannel(nodes[1],8899);
+      Socket socket2 = createWriteSocketChannel(nodes[1],8900);
       sChannel = socket2.getChannel();
-      ByteBuffer buf = bufferPool.getBuffer(8);
+      ByteBuffer buf = bufferPool.getBuffer(16);
       buf.putLong(block.getBlockId());
+      buf.putLong(block.getGenerationStamp());
       buf.flip();
-      sChannel.write(buf);
+      writeChannelFully(sChannel,buf);
       bufferPool.returnBuffer(buf);
 
       currentByteBuffer = bufferPool.getBuffer(perQueueSize + 4);
@@ -2537,23 +2536,42 @@ public class DFSOutputStream extends FSOutputSummer
   private void createLocalWriteFileChannel(SocketChannel socketChannel) throws IOException {
     assert null != block : "You Must Apply For a block First to Create a File Channel";
     assert  null != socketChannel :"SocketChannel for first DataNode is null";
-    ByteBuffer buf = bufferPool.getBuffer(8);
+    ByteBuffer buf = bufferPool.getBuffer(16);
     buf.putLong(-block.getBlockId());
+    buf.putLong(block.getGenerationStamp());
     buf.flip();
-    socketChannel.write(buf);
+    writeChannelFully(socketChannel,buf);
     buf.clear();
-    socketChannel.read(buf);
+    buf.limit(4);
+    readChannelFully(socketChannel,buf,4);
     buf.flip();
     int pathLen = buf.getInt();
     bufferPool.returnBuffer(buf);
     buf = bufferPool.getBuffer(pathLen);
-    socketChannel.read(buf);
+    readChannelFully(socketChannel,buf,pathLen);
+    buf.flip();
     CharsetDecoder decoder = Charset.forName("UTF-8").newDecoder();
     CharBuffer  charBuffer = decoder.decode(buf.asReadOnlyBuffer());
     String pathName = charBuffer.toString();
-    RandomAccessFile aFile = new RandomAccessFile(pathName, "w");
+    RandomAccessFile aFile = new RandomAccessFile(pathName, "rw");
     fileChannel = aFile.getChannel();
     bufferPool.returnBuffer(buf);
+  }
+  private static void readChannelFully(ReadableByteChannel ch, ByteBuffer buf,int n)
+          throws IOException {
+    while (n > 0) {
+      int ret = ch.read(buf);
+      n-=ret;
+      if (n < 0) {
+        throw new IOException("Premature EOF reading from " + ch);
+      }
+    }
+  }
+  private static void writeChannelFully(WritableByteChannel ch, ByteBuffer buf)
+          throws IOException {
+    while (buf.hasRemaining()) {
+      int ret = ch.write(buf);
+    }
   }
 
   public void write(ByteBuffer buf) throws IOException{
@@ -2567,19 +2585,19 @@ public class DFSOutputStream extends FSOutputSummer
       }
       if (currentByteBuffer.hasRemaining()) break;
       currentByteBuffer.flip();
+      ByteBuffer dupBuffer = currentByteBuffer.duplicate();
       writeFiletoLocal(currentByteBuffer);
-      byteBufferStreamer.waitAndQueueCurrentByteBuffer(currentByteBuffer);
+      byteBufferStreamer.waitAndQueueCurrentByteBuffer(dupBuffer);
       currentByteBuffer = bufferPool.getBuffer(perQueueSize + 4);
+      currentByteBuffer.clear();
       currentByteBuffer.putInt(perQueueSize);
     }
   }
 
   private void writeFiletoLocal(ByteBuffer buf) throws IOException {
-    buf.mark();
     while(buf.hasRemaining()){
       fileChannel.write(buf);
     }
-    buf.reset();
   }
 
   public void writeByteBufferImpl(ByteBuffer buf) throws IOException {
@@ -2587,7 +2605,7 @@ public class DFSOutputStream extends FSOutputSummer
     assert null != sChannel : "tcp socket not set yet, null value found.";
     sChannel.write(buf);
     bufferPool.returnBuffer(buf);
-    block.setNumBytes(block.getNumBytes() + currLen-4);
+    block.setNumBytes(block.getNumBytes() + currLen -4);
     bufferPool.returnBuffer(buf);
   }
   public void closeByteBufferImpl() throws IOException{
@@ -2599,6 +2617,7 @@ public class DFSOutputStream extends FSOutputSummer
       currentByteBuffer.flip();
       writeFiletoLocal(currentByteBuffer);
       byteBufferStreamer.waitAndQueueCurrentByteBuffer(currentByteBuffer);
+      currentByteBuffer.clear();
     }
     byteBufferStreamer.closeStreamer();
   }
