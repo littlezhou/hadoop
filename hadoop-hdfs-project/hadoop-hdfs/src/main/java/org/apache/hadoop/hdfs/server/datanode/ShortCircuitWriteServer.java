@@ -22,6 +22,8 @@ import java.nio.channels.SocketChannel;
 import java.nio.file.Path;
 import java.util.Iterator;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 class ShortCircuitWriteServer implements Runnable {
   public static final Log LOG = LogFactory.getLog(ShortCircuitWriteServer.class);
@@ -43,49 +45,51 @@ class ShortCircuitWriteServer implements Runnable {
 
   private int blockIndex = 0;
 
+  ExecutorService cachedThreadPool = Executors.newCachedThreadPool();
+
   ShortCircuitWriteServer(DataNode dataNode, Configuration config) {
     this.dataNode = dataNode;
     this.config = config;
   }
 
-    private void init() {
-      FsDatasetSpi<?> fsDataset;
-      boolean bIn = false;
-      while (true) {
-        fsDataset =  dataNode.getFSDataset();
-        try {
-          Thread.sleep(2000);
-        } catch (InterruptedException e) {
-          bIn = true;
-        }
-        if (fsDataset != null) {
-          break;
-        }
-      }
-
-      volumes = fsDataset.getVolumes();
-      //String localDirs = config.get("dfs.datanode.data.dir");
-      BPOfferService[] bpos = dataNode.getAllBpOs();
-      blockPoolID = bpos[0].getBlockPoolId();
-
-      nDirs = volumes.size();
-      finalizedDirs = new File[nDirs];
-      baseDirs = new String[nDirs];
-      blockTempDirs = new String[nDirs];
-      storageIDs = new String[nDirs];
-
+  private void init() {
+    FsDatasetSpi<?> fsDataset;
+    boolean bIn = false;
+    while (true) {
+      fsDataset =  dataNode.getFSDataset();
       try {
-        for (int i = 0; i < volumes.size(); i++) {
-          finalizedDirs[i] = volumes.get(i).getFinalizedDir(blockPoolID);
-          baseDirs[i] = volumes.get(i).getBasePath();
-          blockTempDirs[i] = baseDirs[i]; // + "/" + BLOCK_TMP_DIR;
-          storageIDs[i] = volumes.get(i).getStorageID();
-        }
-      } catch (IOException e) {
-        LOG.error("[SCW] Error in short circuit write internal initialization:" + e);
-        shutdown = true;
+        Thread.sleep(2000);
+      } catch (InterruptedException e) {
+        bIn = true;
+      }
+      if (fsDataset != null) {
+        break;
       }
     }
+
+    volumes = fsDataset.getVolumes();
+    //String localDirs = config.get("dfs.datanode.data.dir");
+    BPOfferService[] bpos = dataNode.getAllBpOs();
+    blockPoolID = bpos[0].getBlockPoolId();
+
+    nDirs = volumes.size();
+    finalizedDirs = new File[nDirs];
+    baseDirs = new String[nDirs];
+    blockTempDirs = new String[nDirs];
+    storageIDs = new String[nDirs];
+
+    try {
+      for (int i = 0; i < volumes.size(); i++) {
+        finalizedDirs[i] = volumes.get(i).getFinalizedDir(blockPoolID);
+        baseDirs[i] = volumes.get(i).getBasePath();
+        blockTempDirs[i] = baseDirs[i]; // + "/" + BLOCK_TMP_DIR;
+        storageIDs[i] = volumes.get(i).getStorageID();
+      }
+    } catch (IOException e) {
+      LOG.error("[SCW] Error in short circuit write internal initialization:" + e);
+      shutdown = true;
+    }
+  }
 
   public void shutdownServer() {
         shutdown = true;
@@ -103,14 +107,14 @@ class ShortCircuitWriteServer implements Runnable {
 
       while (ssc.isOpen() && !shutdown) {
         if (accSel.select(1000) > 0) {
-            Iterator<SelectionKey> it = accSel.selectedKeys().iterator();
-            while (it.hasNext()) {
-                SelectionKey key = it.next();
-                it.remove();
-                if (key.isAcceptable()) {
-                    handleAccept(key);
-                }
+          Iterator<SelectionKey> it = accSel.selectedKeys().iterator();
+          while (it.hasNext()) {
+            SelectionKey key = it.next();
+            it.remove();
+            if (key.isAcceptable()) {
+                handleAccept(key);
             }
+          }
         }
       }
     } catch (IOException e) {
@@ -123,22 +127,21 @@ class ShortCircuitWriteServer implements Runnable {
       ServerSocketChannel server = (ServerSocketChannel) key.channel();
       SocketChannel client = server.accept();
       if (client != null) {
-        new Thread(new WriteHandler(client, blockIndex++)).start();
+        cachedThreadPool.execute(new WriteHandler(client, blockIndex++));
       }
     } catch (IOException e) {
-        LOG.error("[SCW] Failed in SCW handleAccept:", e);
+      LOG.error("[SCW] Failed in SCW handleAccept:", e);
     }
   }
 
   @Override
   public void run() {
-      init();
+    init();
     startServer(8899);
   }
 
   class WriteHandler implements Runnable {
-      public static final int BUFFER_SIZE = 1 * 1024 * 1024;
-
+    public static final int BUFFER_SIZE = 1 * 1024 * 1024;
 
     private SocketChannel sc;
     private ByteBuffer bb;
@@ -154,13 +157,12 @@ class ShortCircuitWriteServer implements Runnable {
     private long blockGS;
 
 
-
-      WriteHandler(SocketChannel sc, int index) {
-          this.sc = sc;
-          bb = ByteBuffer.allocateDirect(BUFFER_SIZE);
-        currBlockIndex = index;
-        volIndex = currBlockIndex % nDirs;
-      }
+    WriteHandler(SocketChannel sc, int index) {
+      this.sc = sc;
+      bb = ByteBuffer.allocateDirect(BUFFER_SIZE);
+      currBlockIndex = index;
+      volIndex = currBlockIndex % nDirs;
+    }
 
     @Override
     public void run() {
@@ -176,6 +178,10 @@ class ShortCircuitWriteServer implements Runnable {
 
       writeFile();    // write block data file
       writeMetaFile();
+
+      if (dataLen == 0) {
+        dataLen = blockTempFile.length();
+      }
 
       ReplicaBeingWritten rbwReplica = new ReplicaBeingWritten(blockID, blockGS, volumes.get(volIndex), new File(blockTempDirs[volIndex]), 0);
       rbwReplica.setNumBytes(dataLen);
@@ -203,49 +209,61 @@ class ShortCircuitWriteServer implements Runnable {
       }
     }
 
-      private void writeFile() throws IOException {
-        int readed = 0;
-        FileOutputStream fos = null;
-        FileChannel fc = null;
-        if (sc.isConnected()) {
-            try {
-                InputStream is = sc.socket().getInputStream();
-                DataInputStream dis = new DataInputStream(is);
-              blockID = dis.readLong();
-              blockGS = dis.readLong();
+    private void writeFile() throws IOException {
+      int readed = 0;
+      FileOutputStream fos = null;
+      FileChannel fc = null;
+      if (sc.isConnected()) {
+        try {
+          InputStream is = sc.socket().getInputStream();
+          DataInputStream dis = new DataInputStream(is);
+          long tempBlockID = dis.readLong();
+          blockID = tempBlockID > 0 ? tempBlockID : -tempBlockID;
+          blockGS = dis.readLong();
 
-              blockTempFile = new File(blockTempDirs[volIndex], "blk_" + blockID);
+          blockTempFile = new File(blockTempDirs[volIndex], "blk_" + blockID);
 
-                File file = blockTempFile;
-                fos = new FileOutputStream(file, false);
-                fc = fos.getChannel();
-                //fc = FileChannel.open(filePath, EnumSet.of(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE));
-                //LOG.debug("[SCW] Writing file " + file + " ...");
+          if (tempBlockID < 0) {
+            byte[] fn = blockTempFile.getAbsolutePath().getBytes();
+            ByteBuffer len = ByteBuffer.allocate(4).putInt(fn.length);
+            len.flip();
+            sc.write(len);
+            sc.write(ByteBuffer.wrap(fn));
+            len.flip();
+            sc.read(len);
+            return;
+          }
 
-                while (true) {
-                    readed = sc.read(bb);
-                    if (readed > 0) {
-                        bb.flip();
-                        while (bb.hasRemaining()) {
-                            fc.write(bb);
-                        }
-                        dataLen += readed;
-                        bb.flip();
-                    } else {
-                        break;
-                    }
-                }
 
-                fos.close();
-                sc.close();
-                //LOG.debug("[SCW] Write file " + file + " finished with " + dataLen + " bytes!");
-            } catch (IOException e) {
-                LOG.error("[SCW] Write file " + blockID + " " + blockGS + " " + dataLen, e);
-                //e.printStackTrace();
-              throw e;
+          File file = blockTempFile;
+          fos = new FileOutputStream(file, false);
+          fc = fos.getChannel();
+          //fc = FileChannel.open(filePath, EnumSet.of(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE));
+          //LOG.debug("[SCW] Writing file " + file + " ...");
+
+          while (true) {
+            readed = sc.read(bb);
+            if (readed > 0) {
+              bb.flip();
+              while (bb.hasRemaining()) {
+                  fc.write(bb);
+              }
+              dataLen += readed;
+              bb.flip();
+            } else {
+              break;
             }
+          }
+
+          fos.close();
+          sc.close();
+          //LOG.debug("[SCW] Write file " + file + " finished with " + dataLen + " bytes!");
+        } catch (IOException e) {
+          LOG.error("[SCW] Write file " + blockID + " " + blockGS + " " + dataLen, e);
+          //e.printStackTrace();
+          throw e;
         }
+      }
     }
   }
-
 }
