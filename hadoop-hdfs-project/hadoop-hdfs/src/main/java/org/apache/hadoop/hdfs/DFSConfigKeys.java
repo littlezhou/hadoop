@@ -528,6 +528,12 @@ public class DFSConfigKeys extends CommonConfigurationKeys {
   public static final boolean DFS_CLIENT_READ_SHORTCIRCUIT_DEFAULT = false;
   public static final String DFS_CLIENT_READ_SHORTCIRCUIT_SKIP_CHECKSUM_KEY = "dfs.client.read.shortcircuit.skip.checksum";
   public static final boolean DFS_CLIENT_READ_SHORTCIRCUIT_SKIP_CHECKSUM_DEFAULT = false;
+
+  public static final String DFS_CLIENT_LOCALWRITE_BYTEBUFFER_QUEUE_SIZE_KEY = "dfs.client.localwrite.bytebuffer.queue.size";
+  public static final int DFS_CLIENT_LOCALWRITE_BYTEBUFFER_QUEUE_SIZE_DEFAULT = 100;
+  public static final String DFS_CLIENT_LOCALWRITE_BYTEBUFFER_PER_SIZE_KEY = "dfs.client.localwrite.bytebuffer.per.size";
+  public static final int DFS_CLIENT_LOCALWRITE_BYTEBUFFER_PER_SIZE_DEFAULT = 1024 * 100;
+
   public static final String DFS_CLIENT_READ_SHORTCIRCUIT_BUFFER_SIZE_KEY = "dfs.client.read.shortcircuit.buffer.size";
   public static final int DFS_CLIENT_READ_SHORTCIRCUIT_BUFFER_SIZE_DEFAULT = 1024 * 1024;
   public static final String DFS_CLIENT_READ_SHORTCIRCUIT_STREAMS_CACHE_SIZE_KEY = "dfs.client.read.shortcircuit.streams.cache.size";

@@ -331,6 +331,10 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
     final int shortCircuitStreamsCacheSize;
     final long shortCircuitStreamsCacheExpiryMs; 
     final int shortCircuitSharedMemoryWatcherInterruptCheckMs;
+
+
+    final int byteBufferQueueSize;
+    final int byteBufferPerSize;
     
     final boolean shortCircuitMmapEnabled;
     final int shortCircuitMmapCacheSize;
@@ -468,6 +472,12 @@ public class DFSClient implements java.io.Closeable, RemotePeerFactory,
             + " = " + domainSocketPath);
       }
 
+      byteBufferQueueSize = conf.getInt(
+              DFSConfigKeys.DFS_CLIENT_LOCALWRITE_BYTEBUFFER_QUEUE_SIZE_KEY,
+              DFSConfigKeys.DFS_CLIENT_LOCALWRITE_BYTEBUFFER_QUEUE_SIZE_DEFAULT);
+      byteBufferPerSize = conf.getInt(
+              DFSConfigKeys.DFS_CLIENT_LOCALWRITE_BYTEBUFFER_PER_SIZE_KEY,
+              DFSConfigKeys.DFS_CLIENT_LOCALWRITE_BYTEBUFFER_PER_SIZE_DEFAULT);
       skipShortCircuitChecksums = conf.getBoolean(
           DFSConfigKeys.DFS_CLIENT_READ_SHORTCIRCUIT_SKIP_CHECKSUM_KEY,
           DFSConfigKeys.DFS_CLIENT_READ_SHORTCIRCUIT_SKIP_CHECKSUM_DEFAULT);

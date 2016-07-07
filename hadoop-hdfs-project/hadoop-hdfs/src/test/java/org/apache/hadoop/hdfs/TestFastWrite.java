@@ -30,7 +30,7 @@ public class TestFastWrite {
     //conf.set("dfs.client.read.shortcircuit","true");
     //conf.set("dfs.domain.socket.path","/home/cuixuan/dn_socket_PORT");
     conf.set("dfs.checksum.type","NULL");
-    cluster = new MiniDFSCluster.Builder(conf).numDataNodes(1).build();
+    cluster = new MiniDFSCluster.Builder(conf).numDataNodes(2).build();
     fs = cluster.getFileSystem();
 
     try {
@@ -48,7 +48,7 @@ public class TestFastWrite {
 
     try {
       Path myFile = new Path("/test/dir/file");
-      FSDataOutputStream out = fs.create(myFile, (short)1);
+      FSDataOutputStream out = fs.create(myFile, (short)2);
       out.write(buffer);
       out.close();
       assertTrue(fs.exists(myFile));
