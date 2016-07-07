@@ -140,19 +140,11 @@ class ShortCircuitWriteServer implements Runnable {
       public static final int BUFFER_SIZE = 1 * 1024 * 1024;
 
 
-
     private SocketChannel sc;
-      private ByteBuffer bb;
-      private String path;
-      private Path filePath;
-
-    private Path blockTempPath;
-    private Path blockFinalizedPath;
+    private ByteBuffer bb;
 
     private File blockTempFile;
     private File blockMetaTempFile;
-    //private File blockFinalizedFile;
-    //private File  blockMetaFinalizedFile;
 
     private long dataLen = 0;
 
@@ -182,34 +174,11 @@ class ShortCircuitWriteServer implements Runnable {
     private void addBlock() throws IOException {
       long start = Time.monotonicNow();
 
-      //datanode.notifyNamenodeReceivingBlock(block, replicaHandler.getReplica().getStorageUuid());
-
       writeFile();    // write block data file
       writeMetaFile();
 
-      /*
-      int renameState = 0;
-      File blockFinalizedDir;
-      try {
-        blockFinalizedDir = DatanodeUtil.idToBlockDir(finalizedDirs[volIndex], blockID);
-        blockFinalizedFile = new File(blockFinalizedDir, "blk_" + blockID);   // Block.BLOCK_FILE_PREFIX
-        blockMetaFinalizedFile = new File(DatanodeUtil.getMetaName(blockFinalizedFile.getAbsolutePath(), blockGS));
-
-        NativeIO.renameTo(blockTempFile, blockFinalizedFile);
-        renameState++;
-        NativeIO.renameTo(blockMetaTempFile, blockMetaFinalizedFile);
-        renameState++;
-      } catch (IOException e) {
-        if (renameState == 1 && blockFinalizedFile.exists()) {
-          blockFinalizedFile.delete();
-        }
-        throw e;
-      } */
-
       ReplicaBeingWritten rbwReplica = new ReplicaBeingWritten(blockID, blockGS, volumes.get(volIndex), new File(blockTempDirs[volIndex]), 0);
       rbwReplica.setNumBytes(dataLen);
-
-      //FinalizedReplica replica = new FinalizedReplica(blockID, blockFinalizedFile.length(), blockGS, volumes.get(volIndex), blockFinalizedDir.getAbsoluteFile());
 
       FinalizedReplica finalizedReplica = ((FsDatasetImpl) (dataNode.data)).finalizeScwBlock(blockPoolID, rbwReplica, blockTempFile);
 
@@ -220,7 +189,7 @@ class ShortCircuitWriteServer implements Runnable {
       ExtendedBlock block = new ExtendedBlock(blockPoolID, blockID, finalizedReplica.getBlockFile().length(), blockGS);
       dataNode.closeBlock(block, "", storageIDs[volIndex]);
 
-      LOG.info("[SCW] Write block successfully: " + block);
+      //LOG.debug("[SCW] Write block successfully: " + block);
     }
 
     private void writeMetaFile() throws IOException {
@@ -251,7 +220,7 @@ class ShortCircuitWriteServer implements Runnable {
                 fos = new FileOutputStream(file, false);
                 fc = fos.getChannel();
                 //fc = FileChannel.open(filePath, EnumSet.of(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE));
-                LOG.debug("[SCW] Writing file " + file + " ...");
+                //LOG.debug("[SCW] Writing file " + file + " ...");
 
                 while (true) {
                     readed = sc.read(bb);
@@ -269,9 +238,9 @@ class ShortCircuitWriteServer implements Runnable {
 
                 fos.close();
                 sc.close();
-                LOG.debug("[SCW] Write file " + file + " finished with " + dataLen + " bytes!");
+                //LOG.debug("[SCW] Write file " + file + " finished with " + dataLen + " bytes!");
             } catch (IOException e) {
-                LOG.error("[SCW] Write file " + filePath + " " + dataLen, e);
+                LOG.error("[SCW] Write file " + blockID + " " + blockGS + " " + dataLen, e);
                 //e.printStackTrace();
               throw e;
             }
