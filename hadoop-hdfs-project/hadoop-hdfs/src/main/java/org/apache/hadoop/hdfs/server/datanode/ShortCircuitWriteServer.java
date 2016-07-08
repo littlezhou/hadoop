@@ -133,12 +133,12 @@ class ShortCircuitWriteServer implements Runnable {
       LOG.error("[SCW] Failed in SCW handleAccept:", e);
     }
   }
-
   private static boolean used = false;
+
   @Override
   public void run() {
     init();
-    startServer(8900);
+    startServer(8899);
   }
 
   class WriteHandler implements Runnable {

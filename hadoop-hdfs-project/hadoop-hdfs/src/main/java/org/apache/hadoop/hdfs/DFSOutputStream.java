@@ -2467,7 +2467,7 @@ public class DFSOutputStream extends FSOutputSummer
       TraceScope scope = dfsClient.getPathTraceScope("DFSOutputStream#close",
               src);
       try {
-        flushBuffer();       // flush from all upper layers
+        //flushBuffer();       // flush from all upper layers
         completeFile(block);
       } finally {
         closed = true;
@@ -2569,7 +2569,7 @@ public class DFSOutputStream extends FSOutputSummer
   private static void writeChannelFully(WritableByteChannel ch, ByteBuffer buf)
           throws IOException {
     while (buf.hasRemaining()) {
-      int ret = ch.write(buf);
+      ch.write(buf);
     }
   }
 
@@ -2601,8 +2601,7 @@ public class DFSOutputStream extends FSOutputSummer
   public void writeByteBufferImpl(ByteBuffer buf) throws IOException {
     int currLen = buf.remaining();
     assert null != sChannel : "tcp socket not set yet, null value found.";
-    sChannel.write(buf);
-    bufferPool.returnBuffer(buf);
+    writeChannelFully(sChannel,buf);
     block.setNumBytes(block.getNumBytes() + currLen);
     bufferPool.returnBuffer(buf);
   }
@@ -2614,16 +2613,6 @@ public class DFSOutputStream extends FSOutputSummer
       byteBufferStreamer.waitAndQueueCurrentByteBuffer(dupBuffer);
     }
     byteBufferStreamer.closeStreamer();
-  }
-  private void sendCloseSignal() throws IOException{
-    ByteBuffer lenbuf = bufferPool.getBuffer(4);
-    lenbuf.putInt(0);
-    lenbuf.flip();
-    while (lenbuf.hasRemaining()) {
-        assert null != sChannel : "tcp socket not set yet, null value found.";
-        sChannel.write(lenbuf);
-    }
-    bufferPool.returnBuffer(lenbuf);
   }
   class DataByteBufferStreamer extends Thread {
 
@@ -2704,7 +2693,7 @@ public class DFSOutputStream extends FSOutputSummer
           }
         }
 //                dfsClient.LOG.info("Total Times Wait:" + timeWait + "\tTotal Times Write:" + writeTimes);
-        sendCloseSignal();
+        //sendCloseSignal();
       }
     }
 
