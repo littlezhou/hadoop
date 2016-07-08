@@ -118,7 +118,7 @@ class ShortCircuitWriteServer implements Runnable {
         }
       }
     } catch (IOException e) {
-      LOG.error("[SCW] Failed in SCW startServer:", e);
+      LOG.error("[SCW] Failed in SCW startServer on Port " + port + " :", e);
     }
   }
 
@@ -142,7 +142,7 @@ class ShortCircuitWriteServer implements Runnable {
   }
 
   class WriteHandler implements Runnable {
-    public static final int BUFFER_SIZE = 1 * 1024 * 1024;
+    public static final int BUFFER_SIZE = 128 * 1024;
 
     private SocketChannel sc;
     private ByteBuffer bb;
@@ -237,6 +237,7 @@ class ShortCircuitWriteServer implements Runnable {
             }
             len.flip();
             sc.read(len);
+            sc.close();
             return;
           }
 
@@ -248,17 +249,23 @@ class ShortCircuitWriteServer implements Runnable {
           //LOG.debug("[SCW] Writing file " + file + " ...");
 
           while (true) {
-            readed = sc.read(bb);
-            if (readed > 0) {
-              bb.flip();
-              while (bb.hasRemaining()) {
-                  fc.write(bb);
-              }
-              dataLen += readed;
-              bb.flip();
-            } else {
+            readed = 0;
+            while (bb.hasRemaining() && readed >= 0) {
+              readed = sc.read(bb);
+            }
+
+            bb.flip();
+
+            //dataLen += bb.remaining();
+
+            while (bb.hasRemaining()) {
+              dataLen += fc.write(bb);
+            }
+
+            if (readed < 0) {
               break;
             }
+            bb.flip();
           }
 
           fos.close();
