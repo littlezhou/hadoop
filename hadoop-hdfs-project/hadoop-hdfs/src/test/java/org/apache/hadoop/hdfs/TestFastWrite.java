@@ -20,8 +20,8 @@ public class TestFastWrite {
   Configuration conf;
   MiniDFSCluster cluster;
   DistributedFileSystem fs;
-  int factor = 10;
-  int bufferLen = 1024 * 1024;
+  int factor = 500;
+  int bufferLen = 1024 * 100;
   int fileLen = factor * bufferLen;
 
   @Before
@@ -72,7 +72,7 @@ public class TestFastWrite {
     ByteBuffer buffer = ByteBuffer.allocate(bufferLen);
     try {
       Path myFile = new Path("/test/dir/file");
-      FSDataOutputStream out = fs.create(myFile, (short)1);
+      FSDataOutputStream out = fs.create(myFile, (short)2);
       byte[] toWriteBytesEach;
       for(int i = 0; i < factor;i++) {
         buffer.clear();

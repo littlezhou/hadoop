@@ -1737,7 +1737,6 @@ public class DFSOutputStream extends FSOutputSummer
       Preconditions.checkNotNull(stat, "HdfsFileStatus should not be null!");
       final DFSOutputStream out = new DFSOutputStream(dfsClient, src, stat,
           flag, progress, checksum, favoredNodes);
-      out.startCreate();
       out.start();
       return out;
     } finally {
@@ -2461,6 +2460,9 @@ public class DFSOutputStream extends FSOutputSummer
   @Override
   public void close() throws IOException {
     closeByteBufferImpl();
+    fileChannel.close();
+    socketChannel.close();
+    sChannel.close();
     synchronized (this) {
       TraceScope scope = dfsClient.getPathTraceScope("DFSOutputStream#close",
               src);
@@ -2473,9 +2475,6 @@ public class DFSOutputStream extends FSOutputSummer
       }
     }
     dfsClient.endFileLease(fileId);
-    fileChannel.close();
-    socketChannel.close();
-    sChannel.close();
   }
   private synchronized void start() {
 //    streamer.start();
@@ -2490,7 +2489,7 @@ public class DFSOutputStream extends FSOutputSummer
       socketChannel = socket1.getChannel();
       createLocalWriteFileChannel(socketChannel);
 
-      Socket socket2 = createWriteSocketChannel(nodes[1],8900);
+      Socket socket2 = createWriteSocketChannel(nodes[1],8899);
       sChannel = socket2.getChannel();
       ByteBuffer buf = bufferPool.getBuffer(16);
       buf.putLong(block.getBlockId());
@@ -2499,8 +2498,8 @@ public class DFSOutputStream extends FSOutputSummer
       writeChannelFully(sChannel,buf);
       bufferPool.returnBuffer(buf);
 
-      currentByteBuffer = bufferPool.getBuffer(perQueueSize + 4);
-      currentByteBuffer.putInt(perQueueSize);
+      currentByteBuffer = bufferPool.getBuffer(perQueueSize );
+      currentByteBuffer.clear();
       byteBufferStreamer = new DataByteBufferStreamer(dfsClient);
       byteBufferStreamer.setDaemon(true);
       byteBufferStreamer.start();
@@ -2524,7 +2523,7 @@ public class DFSOutputStream extends FSOutputSummer
   private DataByteBufferStreamer byteBufferStreamer = null;
 
   private Socket createWriteSocketChannel(DatanodeInfo datanode,int port) throws IOException {
-    String dnAddr = datanode.getHostName();
+    String dnAddr = datanode.getIpAddr();
     InetSocketAddress isa = NetUtils.createSocketAddr(dnAddr,port);
     Socket sock = dfsClient.socketFactory.createSocket();
     int timeout = dfsClient.getDatanodeReadTimeout(2);
@@ -2588,9 +2587,8 @@ public class DFSOutputStream extends FSOutputSummer
       ByteBuffer dupBuffer = currentByteBuffer.duplicate();
       writeFiletoLocal(currentByteBuffer);
       byteBufferStreamer.waitAndQueueCurrentByteBuffer(dupBuffer);
-      currentByteBuffer = bufferPool.getBuffer(perQueueSize + 4);
+      currentByteBuffer = bufferPool.getBuffer(perQueueSize );
       currentByteBuffer.clear();
-      currentByteBuffer.putInt(perQueueSize);
     }
   }
 
@@ -2605,19 +2603,15 @@ public class DFSOutputStream extends FSOutputSummer
     assert null != sChannel : "tcp socket not set yet, null value found.";
     sChannel.write(buf);
     bufferPool.returnBuffer(buf);
-    block.setNumBytes(block.getNumBytes() + currLen -4);
+    block.setNumBytes(block.getNumBytes() + currLen);
     bufferPool.returnBuffer(buf);
   }
   public void closeByteBufferImpl() throws IOException{
-    int position_index = currentByteBuffer.position();
-    if (position_index > 4) {
-      currentByteBuffer.position(0);
-      currentByteBuffer.putInt(position_index - 4);
-      currentByteBuffer.position(position_index);
-      currentByteBuffer.flip();
+    currentByteBuffer.flip();
+    if (currentByteBuffer.hasRemaining()) {
+      ByteBuffer dupBuffer = currentByteBuffer.duplicate();
       writeFiletoLocal(currentByteBuffer);
-      byteBufferStreamer.waitAndQueueCurrentByteBuffer(currentByteBuffer);
-      currentByteBuffer.clear();
+      byteBufferStreamer.waitAndQueueCurrentByteBuffer(dupBuffer);
     }
     byteBufferStreamer.closeStreamer();
   }

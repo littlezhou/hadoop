@@ -133,17 +133,12 @@ class ShortCircuitWriteServer implements Runnable {
       LOG.error("[SCW] Failed in SCW handleAccept:", e);
     }
   }
-  private static boolean used = false;
 
+  private static boolean used = false;
   @Override
   public void run() {
     init();
-    if(!used){
-      used = true;
-      startServer(8899);
-    }else{
-      startServer(8900);
-    }
+    startServer(8900);
   }
 
   class WriteHandler implements Runnable {
@@ -201,7 +196,7 @@ class ShortCircuitWriteServer implements Runnable {
       ExtendedBlock block = new ExtendedBlock(blockPoolID, blockID, finalizedReplica.getBlockFile().length(), blockGS);
       dataNode.closeBlock(block, "", storageIDs[volIndex]);
 
-      //LOG.debug("[SCW] Write block successfully: " + block);
+//      LOG.info("[SCW] Write block successfully: " + block);
     }
 
     private void writeMetaFile() throws IOException {
@@ -268,7 +263,7 @@ class ShortCircuitWriteServer implements Runnable {
 
           fos.close();
           sc.close();
-          //LOG.debug("[SCW] Write file " + file + " finished with " + dataLen + " bytes!");
+//          LOG.info("[SCW] Write file " + file + " finished with " + dataLen + " bytes!");
         } catch (IOException e) {
           LOG.error("[SCW] Write file " + blockID + " " + blockGS + " " + dataLen, e);
           //e.printStackTrace();
