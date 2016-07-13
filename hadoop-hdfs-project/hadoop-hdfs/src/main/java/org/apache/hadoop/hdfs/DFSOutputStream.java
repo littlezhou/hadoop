@@ -2462,7 +2462,9 @@ public class DFSOutputStream extends FSOutputSummer
     closeByteBufferImpl();
     fileChannel.close();
     socketChannel.close();
-    sChannel.close();
+    if(twoReplica){
+      sChannel.close();
+    }
     synchronized (this) {
       TraceScope scope = dfsClient.getPathTraceScope("DFSOutputStream#close",
               src);
@@ -2484,25 +2486,70 @@ public class DFSOutputStream extends FSOutputSummer
       LocatedBlock lb = streamer.locateFollowingBlock(null);
       block = lb.getBlock();
       DatanodeInfo[] nodes = lb.getLocations();
-      assert  nodes.length == 2 : "To use LocalWrite DataNode Replica Must be 2.";
+      assert  nodes.length <= 2 : "To use LocalWrite DataNode Replica Must be less than 2.";
+      twoReplica = (nodes.length == 2);
       Socket socket1 = createWriteSocketChannel(nodes[0],8899);
       socketChannel = socket1.getChannel();
       createLocalWriteFileChannel(socketChannel);
 
-      Socket socket2 = createWriteSocketChannel(nodes[1],8899);
-      sChannel = socket2.getChannel();
-      ByteBuffer buf = bufferPool.getBuffer(16);
-      buf.putLong(block.getBlockId());
-      buf.putLong(block.getGenerationStamp());
-      buf.flip();
-      writeChannelFully(sChannel,buf);
-      bufferPool.returnBuffer(buf);
+      if(twoReplica) {
+        Socket socket2 = createWriteSocketChannel(nodes[1], 8899);
+        sChannel = socket2.getChannel();
+        ByteBuffer buf = bufferPool.getBuffer(16);
+        buf.putLong(block.getBlockId());
+        buf.putLong(block.getGenerationStamp());
+        buf.flip();
+        writeChannelFully(sChannel, buf);
+        bufferPool.returnBuffer(buf);
+
+        byteBufferStreamer = new DataByteBufferStreamer(dfsClient, new StreamerHandler() {
+//          private int send = 0;
+
+          @Override
+          public void streamerImpl(ByteBufferPacket packet) throws IOException {
+            ByteBuffer buf = packet.packet;
+            assert null != sChannel : "tcp socket not set yet, null value found.";
+//          long begin = Time.monotonicNow();
+            writeChannelFully(sChannel, buf);
+//          socket_send_time+=Time.monotonicNow()-begin;
+
+            if (packet.timeUsedIncre() >= (twoReplica?2:1)) {
+              bufferPool.returnBuffer(buf);
+            }
+//          if(++send % 51200 == 0){
+//            dfsClient.LOG.info("socket send 1GB finished."+send);
+//          }
+          }
+        });
+        byteBufferStreamer.setDaemon(true);
+        byteBufferStreamer.start();
+      }
+      localFileBufferStreamer = new DataByteBufferStreamer(dfsClient, new StreamerHandler() {
+//        private int send = 0;
+        @Override
+        public void streamerImpl(ByteBufferPacket packet) throws IOException {
+            ByteBuffer buf = packet.packet;
+          int currLen = buf.remaining();
+//          long begin = Time.monotonicNow();
+            while (buf.hasRemaining()) {
+              fileChannel.write(buf);
+            }
+//          file_write_time+=Time.monotonicNow()-begin;
+
+            block.setNumBytes(block.getNumBytes() + currLen);
+            if (packet.timeUsedIncre() >= (twoReplica?2:1)) {
+              bufferPool.returnBuffer(buf);
+            }
+//          if(++send % 51200 == 0){
+//            dfsClient.LOG.info("local write 1GB finished."+send);
+//          }
+        }
+      });
+      localFileBufferStreamer.setDaemon(true);
+      localFileBufferStreamer.start();
 
       currentByteBuffer = bufferPool.getBuffer(perQueueSize );
       currentByteBuffer.clear();
-      byteBufferStreamer = new DataByteBufferStreamer(dfsClient);
-      byteBufferStreamer.setDaemon(true);
-      byteBufferStreamer.start();
     } catch (IOException e) {
       e.printStackTrace();
     }
@@ -2514,6 +2561,13 @@ public class DFSOutputStream extends FSOutputSummer
   private SocketChannel sChannel = null;//this is for remote write to transfer data to second Node.
   private ExtendedBlock block = null;
 
+//  private long write_time = 0L;
+//  private long socket_time = 0L;
+//  private long wait_time = 0L;
+//  private long socket_send_time = 0L;
+//  private long file_write_time = 0L;
+  private boolean twoReplica = false;
+
 
   private DirectBufferPool bufferPool = new DirectBufferPool();
   private static int maxQueueSize;
@@ -2521,6 +2575,7 @@ public class DFSOutputStream extends FSOutputSummer
   private ByteBuffer currentByteBuffer;
 
   private DataByteBufferStreamer byteBufferStreamer = null;
+  private DataByteBufferStreamer localFileBufferStreamer = null;
 
   private Socket createWriteSocketChannel(DatanodeInfo datanode,int port) throws IOException {
     String dnAddr = datanode.getIpAddr();
@@ -2574,6 +2629,7 @@ public class DFSOutputStream extends FSOutputSummer
   }
 
   public void write(ByteBuffer buf) throws IOException{
+//    long begin = Time.monotonicNow();
     while (buf.hasRemaining()) {
       if (buf.remaining() <= currentByteBuffer.remaining()) {
         currentByteBuffer.put(buf);
@@ -2584,47 +2640,92 @@ public class DFSOutputStream extends FSOutputSummer
       }
       if (currentByteBuffer.hasRemaining()) break;
       currentByteBuffer.flip();
-      ByteBuffer dupBuffer = currentByteBuffer.duplicate();
-      writeFiletoLocal(currentByteBuffer);
-      byteBufferStreamer.waitAndQueueCurrentByteBuffer(dupBuffer);
-      currentByteBuffer = bufferPool.getBuffer(perQueueSize );
-      currentByteBuffer.clear();
+      queueCurrentByteBufferPacket();
     }
+//    socket_time += Time.monotonicNow() - begin;
   }
-
-  private void writeFiletoLocal(ByteBuffer buf) throws IOException {
+  private void queueCurrentByteBufferPacket() throws IOException{
+    AtomicInteger flag = new AtomicInteger(0);
+    ByteBuffer dupBuffer = currentByteBuffer.duplicate();
+    ByteBufferPacket localWritePacket = new ByteBufferPacket(currentByteBuffer,flag);
+//    long begin1 = Time.monotonicNow();
+    localFileBufferStreamer.waitAndQueueCurrentByteBuffer(localWritePacket);
+//    long begin2 = Time.monotonicNow();
+//    write_time += begin2 - begin1;
+    if(twoReplica) {
+      ByteBufferPacket socketPacket = new ByteBufferPacket(dupBuffer, flag);
+      byteBufferStreamer.waitAndQueueCurrentByteBuffer(socketPacket);
+//    wait_time += Time.monotonicNow() - begin2;
+    }
+    currentByteBuffer = bufferPool.getBuffer(perQueueSize );
+    currentByteBuffer.clear();
+  }
+/*
+  private void writeFiletoLocal(ByteBufferPacket packet) throws IOException {
+    ByteBuffer buf = packet.packet;
     while(buf.hasRemaining()){
       fileChannel.write(buf);
     }
+    packet.timeUsedIncre();
+    if(packet.getTimeUsed() > 1){
+      bufferPool.returnBuffer(buf);
+    }
   }
 
-  public void writeByteBufferImpl(ByteBuffer buf) throws IOException {
+  public void writeByteBufferImpl(ByteBufferPacket packet) throws IOException {
+    ByteBuffer buf = packet.packet;
     int currLen = buf.remaining();
     assert null != sChannel : "tcp socket not set yet, null value found.";
     writeChannelFully(sChannel,buf);
     block.setNumBytes(block.getNumBytes() + currLen);
-    bufferPool.returnBuffer(buf);
-  }
+    packet.timeUsedIncre();
+    if(packet.getTimeUsed() > 1){
+      bufferPool.returnBuffer(buf);
+    }
+  }*/
   public void closeByteBufferImpl() throws IOException{
     currentByteBuffer.flip();
     if (currentByteBuffer.hasRemaining()) {
-      ByteBuffer dupBuffer = currentByteBuffer.duplicate();
-      writeFiletoLocal(currentByteBuffer);
-      byteBufferStreamer.waitAndQueueCurrentByteBuffer(dupBuffer);
+      queueCurrentByteBufferPacket();
     }
-    byteBufferStreamer.closeStreamer();
+    localFileBufferStreamer.closeStreamer();
+    if(twoReplica){
+//    long begin = Time.monotonicNow();
+      byteBufferStreamer.closeStreamer();
+//    wait_time+=Time.monotonicNow() - begin;
+  }
+//    DFSClient.LOG.info("time used for total:"+socket_time);
+//    DFSClient.LOG.info("time used for write local:"+write_time);
+//    DFSClient.LOG.info("time used for wait :"+wait_time);
+//    DFSClient.LOG.info("write time used:"+file_write_time);
+//    DFSClient.LOG.info("socket send time used:"+socket_send_time);
+  }
+  class ByteBufferPacket {
+    public ByteBuffer packet;
+    public volatile AtomicInteger time_used = null;
+    public ByteBufferPacket(ByteBuffer buf,AtomicInteger flag){
+      this.packet = buf;
+      this.time_used = flag;
+    }
+    public synchronized int timeUsedIncre(){
+      return time_used.incrementAndGet();
+    }
+  }
+  interface StreamerHandler {
+    public void streamerImpl(ByteBufferPacket packet) throws IOException;
   }
   class DataByteBufferStreamer extends Thread {
 
-    private final LinkedList<ByteBuffer> dataQueue = new LinkedList<ByteBuffer>();
+    private final LinkedList<ByteBufferPacket> dataQueue = new LinkedList<ByteBufferPacket>();
     private volatile boolean streamerClosed = false;
     private DFSClient dfsClient = null;
-    //        private int timeWait = 0;
 //        private int writeTimes = 0;
     private volatile boolean finished = false;
+    private StreamerHandler handler = null;
 
-    private DataByteBufferStreamer(DFSClient dfsClient) {
+    private DataByteBufferStreamer(DFSClient dfsClient,StreamerHandler handler) {
       this.dfsClient = dfsClient;
+      this.handler = handler;
     }
 
     /*
@@ -2634,7 +2735,7 @@ public class DFSOutputStream extends FSOutputSummer
     @Override
     public void run() {
       while ((!streamerClosed && dfsClient.clientRunning) || !dataQueue.isEmpty()) {
-        ByteBuffer one;
+        ByteBufferPacket one;
         try {
           synchronized (dataQueue) {
             // wait for a packet to be sent.
@@ -2666,11 +2767,8 @@ public class DFSOutputStream extends FSOutputSummer
             DFSClient.LOG.debug("DataStreamer block sending packet " + one);
           }
 
-//                    dfsClient.LOG.info("=======================get out one ByteBuffer.");
-          // write out data to remote datanode
           try {
-            writeByteBufferImpl(one);
-//                        writeTimes++;
+            handler.streamerImpl(one);
           } catch (IOException e) {
             throw e;
           }
@@ -2692,25 +2790,22 @@ public class DFSOutputStream extends FSOutputSummer
             DFSClient.LOG.warn("Caught exception ", e);
           }
         }
-//                dfsClient.LOG.info("Total Times Wait:" + timeWait + "\tTotal Times Write:" + writeTimes);
-        //sendCloseSignal();
       }
     }
 
-    private void queueCurrentByteBuffer(ByteBuffer buf) {
+    private void queueCurrentByteBuffer(ByteBufferPacket buf) {
       synchronized (dataQueue) {
         dataQueue.addLast(buf);
         dataQueue.notifyAll();
       }
     }
 
-    public void waitAndQueueCurrentByteBuffer(ByteBuffer buf) throws IOException {
+    public void waitAndQueueCurrentByteBuffer(ByteBufferPacket buf) throws IOException {
       synchronized (dataQueue) {
         try {
           // If queue is full, then wait till we have enough space
           while (!isClosed() && dataQueue.size() >= maxQueueSize) {
             try {
-//                            timeWait++;
               dataQueue.wait();
             } catch (InterruptedException e) {
               Thread.currentThread().interrupt();

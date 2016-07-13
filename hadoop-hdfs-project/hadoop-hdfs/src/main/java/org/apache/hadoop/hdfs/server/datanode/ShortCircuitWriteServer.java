@@ -26,10 +26,11 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 class ShortCircuitWriteServer implements Runnable {
-  public static final Log LOG = LogFactory.getLog(ShortCircuitWriteServer.class);
+  public static final Log LOG = DataNode.LOG;
 
   private DataNode dataNode;
   private Configuration config;
+  private int per_buffer_size ;
   private volatile boolean shutdown = false;
 
   private static final String BLOCK_TMP_DIR = "scwtemp";
@@ -50,6 +51,8 @@ class ShortCircuitWriteServer implements Runnable {
   ShortCircuitWriteServer(DataNode dataNode, Configuration config) {
     this.dataNode = dataNode;
     this.config = config;
+    assert null != config;
+    per_buffer_size = config.getInt("dfs.client.localwrite.bytebuffer.per.size",102400);
   }
 
   private void init() {
@@ -142,7 +145,7 @@ class ShortCircuitWriteServer implements Runnable {
   }
 
   class WriteHandler implements Runnable {
-    public static final int BUFFER_SIZE = 128 * 1024;
+    public final int BUFFER_SIZE = per_buffer_size;
 
     private SocketChannel sc;
     private ByteBuffer bb;
@@ -178,6 +181,7 @@ class ShortCircuitWriteServer implements Runnable {
       long start = Time.monotonicNow();
 
       writeFile();    // write block data file
+//      long begin = Time.monotonicNow();
       writeMetaFile();
 
       if (dataLen == 0) {
@@ -196,6 +200,7 @@ class ShortCircuitWriteServer implements Runnable {
       ExtendedBlock block = new ExtendedBlock(blockPoolID, blockID, finalizedReplica.getBlockFile().length(), blockGS);
       dataNode.closeBlock(block, "", storageIDs[volIndex]);
 
+//      LOG.info("total time write file used:"+(Time.monotonicNow()-begin));
 //      LOG.info("[SCW] Write block successfully: " + block);
     }
 
@@ -212,7 +217,7 @@ class ShortCircuitWriteServer implements Runnable {
 
     private void writeFile() throws IOException {
       int readed = 0;
-      FileOutputStream fos = null;
+      RandomAccessFile fos = null;
       FileChannel fc = null;
       if (sc.isConnected()) {
         try {
@@ -243,24 +248,30 @@ class ShortCircuitWriteServer implements Runnable {
 
 
           File file = blockTempFile;
-          fos = new FileOutputStream(file, false);
+          fos = new RandomAccessFile(file, "rw");
           fc = fos.getChannel();
           //fc = FileChannel.open(filePath, EnumSet.of(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE));
           //LOG.debug("[SCW] Writing file " + file + " ...");
 
+//          long read_time = 0L;
+//          long write_time = 0L;
           while (true) {
             readed = 0;
+//            long begin = Time.monotonicNow();
             while (bb.hasRemaining() && readed >= 0) {
               readed = sc.read(bb);
             }
+//            read_time += Time.monotonicNow() - begin;
 
             bb.flip();
 
             //dataLen += bb.remaining();
 
+//            begin = Time.monotonicNow();
             while (bb.hasRemaining()) {
               dataLen += fc.write(bb);
             }
+//            write_time+=Time.monotonicNow()- begin;
 
             if (readed < 0) {
               break;
@@ -270,6 +281,8 @@ class ShortCircuitWriteServer implements Runnable {
 
           fos.close();
           sc.close();
+//          LOG.info("File read time is:"+read_time);
+//          LOG.info("File write time is:"+write_time);
 //          LOG.info("[SCW] Write file " + file + " finished with " + dataLen + " bytes!");
         } catch (IOException e) {
           LOG.error("[SCW] Write file " + blockID + " " + blockGS + " " + dataLen, e);
