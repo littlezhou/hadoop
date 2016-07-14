@@ -3,6 +3,7 @@ package org.apache.hadoop.hdfs.server.datanode;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.protocol.ExtendedBlock;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.FsDatasetSpi;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.FsVolumeSpi;
@@ -46,6 +47,8 @@ class ShortCircuitWriteServer implements Runnable {
 
   private int blockIndex = 0;
 
+  private final long blockSize;
+
   ExecutorService cachedThreadPool = Executors.newCachedThreadPool();
 
   ShortCircuitWriteServer(DataNode dataNode, Configuration config) {
@@ -53,6 +56,7 @@ class ShortCircuitWriteServer implements Runnable {
     this.config = config;
     assert null != config;
     per_buffer_size = config.getInt("dfs.client.localwrite.bytebuffer.per.size",102400);
+    blockSize = config.getLongBytes(DFSConfigKeys.DFS_BLOCK_SIZE_KEY, DFSConfigKeys.DFS_BLOCK_SIZE_DEFAULT);
   }
 
   private void init() {
@@ -153,12 +157,15 @@ class ShortCircuitWriteServer implements Runnable {
     private File blockTempFile;
     private File blockMetaTempFile;
 
+    private ExtendedBlock block;
+
     private long dataLen = 0;
 
     private int currBlockIndex;
     private int volIndex;
     private long blockID;
     private long blockGS;
+
 
 
     WriteHandler(SocketChannel sc, int index) {
@@ -197,7 +204,7 @@ class ShortCircuitWriteServer implements Runnable {
       dataNode.metrics.addWriteBlockOp(Time.monotonicNow() - start);
       dataNode.metrics.incrWritesFromClient(true, dataLen);
 
-      ExtendedBlock block = new ExtendedBlock(blockPoolID, blockID, finalizedReplica.getBlockFile().length(), blockGS);
+      block.setNumBytes(finalizedReplica.getBlockFile().length());  // update block length
       dataNode.closeBlock(block, "", storageIDs[volIndex]);
 
 //      LOG.info("total time write file used:"+(Time.monotonicNow()-begin));
@@ -227,6 +234,8 @@ class ShortCircuitWriteServer implements Runnable {
           blockID = tempBlockID > 0 ? tempBlockID : -tempBlockID;
           blockGS = dis.readLong();
 
+          block = new ExtendedBlock(blockPoolID, blockID, blockSize, blockGS);
+
           blockTempFile = new File(blockTempDirs[volIndex], "blk_" + blockID);
 
           if (tempBlockID < 0) {
@@ -240,12 +249,16 @@ class ShortCircuitWriteServer implements Runnable {
             while(pathBuffer.hasRemaining()){
               sc.write(pathBuffer);
             }
+
+            dataNode.notifyNamenodeReceivingBlock(block, storageIDs[volIndex]);
+
             len.flip();
             sc.read(len);
             sc.close();
             return;
           }
 
+          dataNode.notifyNamenodeReceivingBlock(block, storageIDs[volIndex]);
 
           File file = blockTempFile;
           fos = new RandomAccessFile(file, "rw");
