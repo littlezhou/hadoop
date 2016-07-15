@@ -20,6 +20,7 @@ package org.apache.hadoop.hdfs;
 import static org.apache.hadoop.hdfs.protocol.proto.DataTransferProtos.Status.SUCCESS;
 
 import java.io.*;
+import java.lang.ref.WeakReference;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
@@ -29,12 +30,10 @@ import java.nio.CharBuffer;
 import java.nio.channels.*;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.EnumSet;
-import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -2459,6 +2458,7 @@ public class DFSOutputStream extends FSOutputSummer
   //##########This is changed.##################################################
   @Override
   public void close() throws IOException {
+    long begin = Time.monotonicNow();
     closeByteBufferImpl();
     fileChannel.close();
     socketChannel.close();
@@ -2477,11 +2477,12 @@ public class DFSOutputStream extends FSOutputSummer
       }
     }
     dfsClient.endFileLease(fileId);
+    DFSClient.LOG.info("close file:"+src+" cost time:"+(Time.monotonicNow()-begin)+" ms");
   }
   private synchronized void start() {
 //    streamer.start();
     try {
-      maxQueueSize = dfsClient.getConf().byteBufferQueueSize;
+//      maxQueueSize = dfsClient.getConf().byteBufferQueueSize;
       perQueueSize = dfsClient.getConf().byteBufferPerSize;
       LocatedBlock lb = streamer.locateFollowingBlock(null);
       block = lb.getBlock();
@@ -2495,60 +2496,13 @@ public class DFSOutputStream extends FSOutputSummer
       if(twoReplica) {
         Socket socket2 = createWriteSocketChannel(nodes[1], 8899);
         sChannel = socket2.getChannel();
-        ByteBuffer buf = bufferPool.getBuffer(16);
+        ByteBuffer buf = ByteBuffer.allocate(16);
         buf.putLong(block.getBlockId());
         buf.putLong(block.getGenerationStamp());
         buf.flip();
         writeChannelFully(sChannel, buf);
-        bufferPool.returnBuffer(buf);
-
-        byteBufferStreamer = new DataByteBufferStreamer(dfsClient, new StreamerHandler() {
-//          private int send = 0;
-
-          @Override
-          public void streamerImpl(ByteBufferPacket packet) throws IOException {
-            ByteBuffer buf = packet.packet;
-            assert null != sChannel : "tcp socket not set yet, null value found.";
-//          long begin = Time.monotonicNow();
-            writeChannelFully(sChannel, buf);
-//          socket_send_time+=Time.monotonicNow()-begin;
-
-            if (packet.timeUsedIncre() >= (twoReplica?2:1)) {
-              bufferPool.returnBuffer(buf);
-            }
-//          if(++send % 51200 == 0){
-//            dfsClient.LOG.info("socket send 1GB finished."+send);
-//          }
-          }
-        });
-        byteBufferStreamer.setDaemon(true);
-        byteBufferStreamer.start();
       }
-      localFileBufferStreamer = new DataByteBufferStreamer(dfsClient, new StreamerHandler() {
-//        private int send = 0;
-        @Override
-        public void streamerImpl(ByteBufferPacket packet) throws IOException {
-            ByteBuffer buf = packet.packet;
-          int currLen = buf.remaining();
-//          long begin = Time.monotonicNow();
-            while (buf.hasRemaining()) {
-              fileChannel.write(buf);
-            }
-//          file_write_time+=Time.monotonicNow()-begin;
-
-            block.setNumBytes(block.getNumBytes() + currLen);
-            if (packet.timeUsedIncre() >= (twoReplica?2:1)) {
-              bufferPool.returnBuffer(buf);
-            }
-//          if(++send % 51200 == 0){
-//            dfsClient.LOG.info("local write 1GB finished."+send);
-//          }
-        }
-      });
-      localFileBufferStreamer.setDaemon(true);
-      localFileBufferStreamer.start();
-
-      currentByteBuffer = bufferPool.getBuffer(perQueueSize );
+      currentByteBuffer = ByteBuffer.allocate(perQueueSize );
       currentByteBuffer.clear();
     } catch (IOException e) {
       e.printStackTrace();
@@ -2563,19 +2517,15 @@ public class DFSOutputStream extends FSOutputSummer
 
 //  private long write_time = 0L;
 //  private long socket_time = 0L;
+//  private long whole_write_time = 0L;
 //  private long wait_time = 0L;
 //  private long socket_send_time = 0L;
 //  private long file_write_time = 0L;
   private boolean twoReplica = false;
 
 
-  private DirectBufferPool bufferPool = new DirectBufferPool();
-  private static int maxQueueSize;
   private static int perQueueSize;
   private ByteBuffer currentByteBuffer;
-
-  private DataByteBufferStreamer byteBufferStreamer = null;
-  private DataByteBufferStreamer localFileBufferStreamer = null;
 
   private Socket createWriteSocketChannel(DatanodeInfo datanode,int port) throws IOException {
     String dnAddr = datanode.getIpAddr();
@@ -2590,7 +2540,7 @@ public class DFSOutputStream extends FSOutputSummer
   private void createLocalWriteFileChannel(SocketChannel socketChannel) throws IOException {
     assert null != block : "You Must Apply For a block First to Create a File Channel";
     assert  null != socketChannel :"SocketChannel for first DataNode is null";
-    ByteBuffer buf = bufferPool.getBuffer(16);
+    ByteBuffer buf = ByteBuffer.allocate(16);
     buf.putLong(-block.getBlockId());
     buf.putLong(block.getGenerationStamp());
     buf.flip();
@@ -2600,8 +2550,7 @@ public class DFSOutputStream extends FSOutputSummer
     readChannelFully(socketChannel,buf,4);
     buf.flip();
     int pathLen = buf.getInt();
-    bufferPool.returnBuffer(buf);
-    buf = bufferPool.getBuffer(pathLen);
+    buf = ByteBuffer.allocate(pathLen);
     readChannelFully(socketChannel,buf,pathLen);
     buf.flip();
     CharsetDecoder decoder = Charset.forName("UTF-8").newDecoder();
@@ -2609,7 +2558,6 @@ public class DFSOutputStream extends FSOutputSummer
     String pathName = charBuffer.toString();
     RandomAccessFile aFile = new RandomAccessFile(pathName, "rw");
     fileChannel = aFile.getChannel();
-    bufferPool.returnBuffer(buf);
   }
   private static void readChannelFully(ReadableByteChannel ch, ByteBuffer buf,int n)
           throws IOException {
@@ -2642,181 +2590,28 @@ public class DFSOutputStream extends FSOutputSummer
       currentByteBuffer.flip();
       queueCurrentByteBufferPacket();
     }
-//    socket_time += Time.monotonicNow() - begin;
+//    whole_write_time += Time.monotonicNow() - begin;
   }
   private void queueCurrentByteBufferPacket() throws IOException{
-    AtomicInteger flag = new AtomicInteger(0);
-    ByteBuffer dupBuffer = currentByteBuffer.duplicate();
-    ByteBufferPacket localWritePacket = new ByteBufferPacket(currentByteBuffer,flag);
-//    long begin1 = Time.monotonicNow();
-    localFileBufferStreamer.waitAndQueueCurrentByteBuffer(localWritePacket);
-//    long begin2 = Time.monotonicNow();
-//    write_time += begin2 - begin1;
-    if(twoReplica) {
-      ByteBufferPacket socketPacket = new ByteBufferPacket(dupBuffer, flag);
-      byteBufferStreamer.waitAndQueueCurrentByteBuffer(socketPacket);
-//    wait_time += Time.monotonicNow() - begin2;
+    int curLen = currentByteBuffer.remaining();
+    while(currentByteBuffer.hasRemaining()){
+      fileChannel.write(currentByteBuffer);
     }
-    currentByteBuffer = bufferPool.getBuffer(perQueueSize );
+    if(twoReplica) {
+      currentByteBuffer.flip();
+      while(currentByteBuffer.hasRemaining()){
+        sChannel.write(currentByteBuffer);
+      }
+    }
+    block.setNumBytes(block.getNumBytes()+curLen);
     currentByteBuffer.clear();
   }
-/*
-  private void writeFiletoLocal(ByteBufferPacket packet) throws IOException {
-    ByteBuffer buf = packet.packet;
-    while(buf.hasRemaining()){
-      fileChannel.write(buf);
-    }
-    packet.timeUsedIncre();
-    if(packet.getTimeUsed() > 1){
-      bufferPool.returnBuffer(buf);
-    }
-  }
 
-  public void writeByteBufferImpl(ByteBufferPacket packet) throws IOException {
-    ByteBuffer buf = packet.packet;
-    int currLen = buf.remaining();
-    assert null != sChannel : "tcp socket not set yet, null value found.";
-    writeChannelFully(sChannel,buf);
-    block.setNumBytes(block.getNumBytes() + currLen);
-    packet.timeUsedIncre();
-    if(packet.getTimeUsed() > 1){
-      bufferPool.returnBuffer(buf);
-    }
-  }*/
   public void closeByteBufferImpl() throws IOException{
     currentByteBuffer.flip();
     if (currentByteBuffer.hasRemaining()) {
       queueCurrentByteBufferPacket();
     }
-    localFileBufferStreamer.closeStreamer();
-    if(twoReplica){
-//    long begin = Time.monotonicNow();
-      byteBufferStreamer.closeStreamer();
-//    wait_time+=Time.monotonicNow() - begin;
   }
-//    DFSClient.LOG.info("time used for total:"+socket_time);
-//    DFSClient.LOG.info("time used for write local:"+write_time);
-//    DFSClient.LOG.info("time used for wait :"+wait_time);
-//    DFSClient.LOG.info("write time used:"+file_write_time);
-//    DFSClient.LOG.info("socket send time used:"+socket_send_time);
-  }
-  class ByteBufferPacket {
-    public ByteBuffer packet;
-    public volatile AtomicInteger time_used = null;
-    public ByteBufferPacket(ByteBuffer buf,AtomicInteger flag){
-      this.packet = buf;
-      this.time_used = flag;
-    }
-    public synchronized int timeUsedIncre(){
-      return time_used.incrementAndGet();
-    }
-  }
-  interface StreamerHandler {
-    public void streamerImpl(ByteBufferPacket packet) throws IOException;
-  }
-  class DataByteBufferStreamer extends Thread {
 
-    private final LinkedList<ByteBufferPacket> dataQueue = new LinkedList<ByteBufferPacket>();
-    private volatile boolean streamerClosed = false;
-    private DFSClient dfsClient = null;
-//        private int writeTimes = 0;
-    private volatile boolean finished = false;
-    private StreamerHandler handler = null;
-
-    private DataByteBufferStreamer(DFSClient dfsClient,StreamerHandler handler) {
-      this.dfsClient = dfsClient;
-      this.handler = handler;
-    }
-
-    /*
-     * streamer thread is the only thread that opens streams to datanode,
-     * and closes them. Any error recovery is also done by this thread.
-     */
-    @Override
-    public void run() {
-      while ((!streamerClosed && dfsClient.clientRunning) || !dataQueue.isEmpty()) {
-        ByteBufferPacket one;
-        try {
-          synchronized (dataQueue) {
-            // wait for a packet to be sent.
-            while (!streamerClosed && dfsClient.clientRunning
-                    && dataQueue.size() == 0) {
-              try {
-                dataQueue.wait(1000);
-              } catch (InterruptedException e) {
-                DFSClient.LOG.warn("Caught exception ", e);
-              }
-            }
-            if ((streamerClosed || !dfsClient.clientRunning) && dataQueue.isEmpty()) {
-              break;
-            }
-            // get packet to be sent.
-            if (!dataQueue.isEmpty()) {
-              one = dataQueue.getFirst(); // regular data packet
-            } else {
-              continue;
-            }
-          }
-          // send the packet
-          synchronized (dataQueue) {
-            dataQueue.removeFirst();
-            dataQueue.notifyAll();
-          }
-
-          if (DFSClient.LOG.isDebugEnabled()) {
-            DFSClient.LOG.debug("DataStreamer block sending packet " + one);
-          }
-
-          try {
-            handler.streamerImpl(one);
-          } catch (IOException e) {
-            throw e;
-          }
-
-        } catch (Throwable e) {
-          DFSClient.LOG.error(e);
-        }
-      }
-      finished = true;
-    }
-
-    public void closeStreamer() throws IOException {
-      streamerClosed = true;
-      synchronized (dataQueue) {
-        while (dataQueue.size() > 0 || !finished) {
-          try {
-            dataQueue.wait(1000);
-          } catch (InterruptedException e) {
-            DFSClient.LOG.warn("Caught exception ", e);
-          }
-        }
-      }
-    }
-
-    private void queueCurrentByteBuffer(ByteBufferPacket buf) {
-      synchronized (dataQueue) {
-        dataQueue.addLast(buf);
-        dataQueue.notifyAll();
-      }
-    }
-
-    public void waitAndQueueCurrentByteBuffer(ByteBufferPacket buf) throws IOException {
-      synchronized (dataQueue) {
-        try {
-          // If queue is full, then wait till we have enough space
-          while (!isClosed() && dataQueue.size() >= maxQueueSize) {
-            try {
-              dataQueue.wait();
-            } catch (InterruptedException e) {
-              Thread.currentThread().interrupt();
-              break;
-            }
-          }
-          checkClosed();
-          queueCurrentByteBuffer(buf);
-        } catch (ClosedChannelException e) {
-        }
-      }
-    }
-  }
 }
