@@ -170,7 +170,7 @@ class ShortCircuitWriteServer implements Runnable {
 
     WriteHandler(SocketChannel sc, int index) {
       this.sc = sc;
-      bb = ByteBuffer.allocateDirect(BUFFER_SIZE);
+      bb = ByteBuffer.allocate(BUFFER_SIZE);
       currBlockIndex = index;
       volIndex = currBlockIndex % nDirs;
     }

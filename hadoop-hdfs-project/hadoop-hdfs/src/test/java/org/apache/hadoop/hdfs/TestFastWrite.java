@@ -49,7 +49,8 @@ public class TestFastWrite {
     try {
       Path myFile = new Path("/test/dir/file");
       FSDataOutputStream out = fs.create(myFile, (short)1);
-      out.write(buffer);
+//      out.write(buffer);
+      out.write(buffer.array(),buffer.arrayOffset()+buffer.position(),buffer.remaining());
       out.close();
       assertTrue(fs.exists(myFile));
 

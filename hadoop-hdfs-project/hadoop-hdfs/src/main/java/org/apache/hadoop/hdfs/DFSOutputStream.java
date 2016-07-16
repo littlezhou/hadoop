@@ -1880,16 +1880,16 @@ public class DFSOutputStream extends FSOutputSummer
 
   @Override
   public synchronized void write(int b) throws IOException {
-    ByteBuffer buf = ByteBuffer.allocate(1);
-    buf.put((byte) (b & 0xFF));
-    buf.flip();
-    write(buf);
+    byte[] bytes = new byte[] {(byte) b};
+    write(bytes, 0, 1);
   }
 
   @Override
   public synchronized void write(byte b[], int off, int len)
       throws IOException {
-    write(ByteBuffer.wrap(b, off, len));
+    //write(ByteBuffer.wrap(b, off, len),true);
+    out.write(b,off,len);
+    block.setNumBytes(block.getNumBytes()+len);
   }
 
   // @see FSOutputSummer#writeChunk()
@@ -2460,7 +2460,8 @@ public class DFSOutputStream extends FSOutputSummer
   public void close() throws IOException {
     long begin = Time.monotonicNow();
     closeByteBufferImpl();
-    fileChannel.close();
+//    fileChannel.close();
+    out.close();
     socketChannel.close();
     if(twoReplica){
       sChannel.close();
@@ -2502,8 +2503,8 @@ public class DFSOutputStream extends FSOutputSummer
         buf.flip();
         writeChannelFully(sChannel, buf);
       }
-      currentByteBuffer = ByteBuffer.allocate(perQueueSize );
-      currentByteBuffer.clear();
+//      currentByteBuffer = ByteBuffer.allocate(perQueueSize );
+//      currentByteBuffer.clear();
     } catch (IOException e) {
       e.printStackTrace();
     }
@@ -2512,6 +2513,7 @@ public class DFSOutputStream extends FSOutputSummer
   //###################split line:This is added.########################################
   private FileChannel fileChannel = null;
   private SocketChannel socketChannel = null;//this is for local write.
+  private BufferedOutputStream out = null;
   private SocketChannel sChannel = null;//this is for remote write to transfer data to second Node.
   private ExtendedBlock block = null;
 
@@ -2556,8 +2558,13 @@ public class DFSOutputStream extends FSOutputSummer
     CharsetDecoder decoder = Charset.forName("UTF-8").newDecoder();
     CharBuffer  charBuffer = decoder.decode(buf.asReadOnlyBuffer());
     String pathName = charBuffer.toString();
-    RandomAccessFile aFile = new RandomAccessFile(pathName, "rw");
-    fileChannel = aFile.getChannel();
+    /*RandomAccessFile aFile = new RandomAccessFile(pathName, "rw");
+    fileChannel = aFile.getChannel();*/
+    File f = new File(pathName);
+    f.createNewFile();
+    OutputStream outputStream = new FileOutputStream(f);
+    out = new BufferedOutputStream(outputStream,perQueueSize);
+//    fileChannel = out.getChannel();
   }
   private static void readChannelFully(ReadableByteChannel ch, ByteBuffer buf,int n)
           throws IOException {
@@ -2577,8 +2584,15 @@ public class DFSOutputStream extends FSOutputSummer
   }
 
   public void write(ByteBuffer buf) throws IOException{
+//    write(buf,false);
+  }
+  public void write(ByteBuffer buf,boolean isWrite) throws IOException{
 //    long begin = Time.monotonicNow();
-    while (buf.hasRemaining()) {
+//    block.setNumBytes(block.getNumBytes()+buf.remaining());
+//    while(buf.hasRemaining()){
+//      fileChannel.write(buf);
+//    }
+   /* while (buf.hasRemaining()) {
       if (buf.remaining() <= currentByteBuffer.remaining()) {
         currentByteBuffer.put(buf);
       } else {
@@ -2588,8 +2602,12 @@ public class DFSOutputStream extends FSOutputSummer
       }
       if (currentByteBuffer.hasRemaining()) break;
       currentByteBuffer.flip();
-      queueCurrentByteBufferPacket();
-    }
+//      if(isWrite){
+        queueCurrentByteBufferPacket();
+//      }else{
+//        currentByteBuffer.clear();
+//      }/////////
+    }*/
 //    whole_write_time += Time.monotonicNow() - begin;
   }
   private void queueCurrentByteBufferPacket() throws IOException{
@@ -2608,10 +2626,10 @@ public class DFSOutputStream extends FSOutputSummer
   }
 
   public void closeByteBufferImpl() throws IOException{
-    currentByteBuffer.flip();
-    if (currentByteBuffer.hasRemaining()) {
-      queueCurrentByteBufferPacket();
-    }
+//    currentByteBuffer.flip();
+//    if (currentByteBuffer.hasRemaining()) {
+//      queueCurrentByteBufferPacket();
+//    }
   }
 
 }
