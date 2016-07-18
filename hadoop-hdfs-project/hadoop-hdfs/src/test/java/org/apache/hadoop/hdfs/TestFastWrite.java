@@ -80,7 +80,7 @@ public class TestFastWrite {
         toWriteBytesEach = generateBytes(bufferLen);
         buffer.put(toWriteBytesEach);
         buffer.flip();
-        out.write(buffer);
+        out.write(buffer.array(),buffer.arrayOffset()+buffer.position(),buffer.remaining());
       }
       out.close();
       assertTrue(fs.exists(myFile));

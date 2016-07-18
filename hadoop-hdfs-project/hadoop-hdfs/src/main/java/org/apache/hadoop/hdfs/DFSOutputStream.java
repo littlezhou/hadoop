@@ -124,7 +124,7 @@ import com.google.common.cache.RemovalNotification;
 ****************************************************************/
 @InterfaceAudience.Private
 public class DFSOutputStream extends FSOutputSummer
-    implements Syncable, CanSetDropBehind, ByteBufferWritable {
+    implements Syncable, CanSetDropBehind {
   private final long dfsclientSlowLogThresholdMs;
   /**
    * Number of times to retry creating a file when there are transient 
@@ -2459,8 +2459,6 @@ public class DFSOutputStream extends FSOutputSummer
   @Override
   public void close() throws IOException {
     long begin = Time.monotonicNow();
-    closeByteBufferImpl();
-//    fileChannel.close();
     out.close();
     socketChannel.close();
     if(twoReplica){
@@ -2470,7 +2468,6 @@ public class DFSOutputStream extends FSOutputSummer
       TraceScope scope = dfsClient.getPathTraceScope("DFSOutputStream#close",
               src);
       try {
-        //flushBuffer();       // flush from all upper layers
         completeFile(block);
       } finally {
         closed = true;
@@ -2481,9 +2478,7 @@ public class DFSOutputStream extends FSOutputSummer
     DFSClient.LOG.info("close file:"+src+" cost time:"+(Time.monotonicNow()-begin)+" ms");
   }
   private synchronized void start() {
-//    streamer.start();
     try {
-//      maxQueueSize = dfsClient.getConf().byteBufferQueueSize;
       perQueueSize = dfsClient.getConf().byteBufferPerSize;
       LocatedBlock lb = streamer.locateFollowingBlock(null);
       block = lb.getBlock();
@@ -2503,26 +2498,17 @@ public class DFSOutputStream extends FSOutputSummer
         buf.flip();
         writeChannelFully(sChannel, buf);
       }
-//      currentByteBuffer = ByteBuffer.allocate(perQueueSize );
-//      currentByteBuffer.clear();
     } catch (IOException e) {
       e.printStackTrace();
     }
   }
 
   //###################split line:This is added.########################################
-  private FileChannel fileChannel = null;
   private SocketChannel socketChannel = null;//this is for local write.
   private BufferedOutputStream out = null;
   private SocketChannel sChannel = null;//this is for remote write to transfer data to second Node.
   private ExtendedBlock block = null;
 
-//  private long write_time = 0L;
-//  private long socket_time = 0L;
-//  private long whole_write_time = 0L;
-//  private long wait_time = 0L;
-//  private long socket_send_time = 0L;
-//  private long file_write_time = 0L;
   private boolean twoReplica = false;
 
 
@@ -2558,13 +2544,10 @@ public class DFSOutputStream extends FSOutputSummer
     CharsetDecoder decoder = Charset.forName("UTF-8").newDecoder();
     CharBuffer  charBuffer = decoder.decode(buf.asReadOnlyBuffer());
     String pathName = charBuffer.toString();
-    /*RandomAccessFile aFile = new RandomAccessFile(pathName, "rw");
-    fileChannel = aFile.getChannel();*/
     File f = new File(pathName);
     f.createNewFile();
     OutputStream outputStream = new FileOutputStream(f);
     out = new BufferedOutputStream(outputStream,perQueueSize);
-//    fileChannel = out.getChannel();
   }
   private static void readChannelFully(ReadableByteChannel ch, ByteBuffer buf,int n)
           throws IOException {
@@ -2581,55 +2564,6 @@ public class DFSOutputStream extends FSOutputSummer
     while (buf.hasRemaining()) {
       ch.write(buf);
     }
-  }
-
-  public void write(ByteBuffer buf) throws IOException{
-//    write(buf,false);
-  }
-  public void write(ByteBuffer buf,boolean isWrite) throws IOException{
-//    long begin = Time.monotonicNow();
-//    block.setNumBytes(block.getNumBytes()+buf.remaining());
-//    while(buf.hasRemaining()){
-//      fileChannel.write(buf);
-//    }
-   /* while (buf.hasRemaining()) {
-      if (buf.remaining() <= currentByteBuffer.remaining()) {
-        currentByteBuffer.put(buf);
-      } else {
-        int lentocopy = currentByteBuffer.remaining();
-        currentByteBuffer.put(buf.array(), buf.position(), lentocopy);
-        buf.position(buf.position() + lentocopy);
-      }
-      if (currentByteBuffer.hasRemaining()) break;
-      currentByteBuffer.flip();
-//      if(isWrite){
-        queueCurrentByteBufferPacket();
-//      }else{
-//        currentByteBuffer.clear();
-//      }/////////
-    }*/
-//    whole_write_time += Time.monotonicNow() - begin;
-  }
-  private void queueCurrentByteBufferPacket() throws IOException{
-    int curLen = currentByteBuffer.remaining();
-    while(currentByteBuffer.hasRemaining()){
-      fileChannel.write(currentByteBuffer);
-    }
-    if(twoReplica) {
-      currentByteBuffer.flip();
-      while(currentByteBuffer.hasRemaining()){
-        sChannel.write(currentByteBuffer);
-      }
-    }
-    block.setNumBytes(block.getNumBytes()+curLen);
-    currentByteBuffer.clear();
-  }
-
-  public void closeByteBufferImpl() throws IOException{
-//    currentByteBuffer.flip();
-//    if (currentByteBuffer.hasRemaining()) {
-//      queueCurrentByteBufferPacket();
-//    }
   }
 
 }

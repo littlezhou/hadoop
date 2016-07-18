@@ -37,7 +37,7 @@ import java.nio.channels.SocketChannel;
 @InterfaceAudience.Public
 @InterfaceStability.Stable
 public class FSDataOutputStream extends DataOutputStream
-    implements Syncable, CanSetDropBehind, ByteBufferWritable {
+    implements Syncable, CanSetDropBehind {
   private final OutputStream wrappedStream;
 
   private static class PositionCache extends FilterOutputStream {
@@ -120,13 +120,6 @@ public class FSDataOutputStream extends DataOutputStream
   @InterfaceAudience.LimitedPrivate({"HDFS"})
   public OutputStream getWrappedStream() {
     return wrappedStream;
-  }
-
-  @Override
-  public void write(ByteBuffer buf) throws IOException {
-    if (wrappedStream instanceof ByteBufferWritable) {
-      ((ByteBufferWritable) wrappedStream).write(buf);
-    }
   }
 
   @Override  // Syncable
