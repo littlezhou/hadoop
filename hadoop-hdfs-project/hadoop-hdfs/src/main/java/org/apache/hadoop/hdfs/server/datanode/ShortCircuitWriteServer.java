@@ -231,15 +231,22 @@ class ShortCircuitWriteServer implements Runnable {
           InputStream is = sc.socket().getInputStream();
           DataInputStream dis = new DataInputStream(is);
           long tempBlockID = dis.readLong();
+          long tempBlockGS = dis.readLong();
           blockID = tempBlockID > 0 ? tempBlockID : -tempBlockID;
-          blockGS = dis.readLong();
+          blockGS = tempBlockGS > 0 ? tempBlockGS : -tempBlockGS;
 
           block = new ExtendedBlock(blockPoolID, blockID, blockSize, blockGS);
 
           blockTempFile = new File(blockTempDirs[volIndex], "blk_" + blockID);
 
           if (tempBlockID < 0) {
-            byte[] fn = blockTempFile.getAbsolutePath().getBytes("UTF-8");
+            byte[] fn;
+            if (tempBlockGS >= 0) {
+              fn = blockTempFile.getAbsolutePath().getBytes("UTF-8");
+            } else {
+              File fnDir = DatanodeUtil.idToBlockDir(finalizedDirs[volIndex], blockID);
+              fn = new File(fnDir, "blk_" + blockID).getAbsolutePath().getBytes("UTF-8");
+            }
             ByteBuffer len = ByteBuffer.allocate(4).putInt(fn.length);
             len.flip();
             while(len.hasRemaining()){
