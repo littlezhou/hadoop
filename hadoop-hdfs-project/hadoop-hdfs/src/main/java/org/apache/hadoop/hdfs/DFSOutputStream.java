@@ -2464,7 +2464,7 @@ public class DFSOutputStream extends FSOutputSummer
   //##########This is changed.##################################################
   @Override
   public void close() throws IOException {
-    long begin = Time.monotonicNow();
+    //long begin = Time.monotonicNow();
     if (out != null) {
       out.close();
     } else {
@@ -2489,7 +2489,7 @@ public class DFSOutputStream extends FSOutputSummer
       }
     }
     dfsClient.endFileLease(fileId);
-    DFSClient.LOG.info("close file:"+src+" cost time:"+(Time.monotonicNow()-begin)+" ms");
+    //DFSClient.LOG.info("close file:"+src+" cost time:"+(Time.monotonicNow()-begin)+" ms");
   }
   private synchronized void start() {
     try {
