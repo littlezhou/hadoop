@@ -18,9 +18,17 @@
 package org.apache.hadoop.hdfs;
 
 import java.io.EOFException;
+import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.channels.ReadableByteChannel;
+import java.nio.channels.SocketChannel;
+import java.nio.channels.WritableByteChannel;
+import java.nio.charset.Charset;
+import java.nio.charset.CharsetDecoder;
 import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -61,6 +69,7 @@ import org.apache.hadoop.hdfs.protocol.ClientDatanodeProtocol;
 import org.apache.hadoop.hdfs.protocol.DatanodeInfo;
 import org.apache.hadoop.hdfs.protocol.ExtendedBlock;
 import org.apache.hadoop.fs.FileEncryptionInfo;
+import org.apache.hadoop.hdfs.protocol.HdfsConstants;
 import org.apache.hadoop.hdfs.protocol.LocatedBlock;
 import org.apache.hadoop.hdfs.protocol.LocatedBlocks;
 import org.apache.hadoop.hdfs.protocol.datatransfer.InvalidEncryptionKeyException;
@@ -113,6 +122,7 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
   // state shared by stateful and positional read:
   // (protected by lock on infoLock)
   ////
+  private String blockFilePath = null;
   private LocatedBlocks locatedBlocks = null;
   private long lastBlockBeingWrittenLength = 0;
   private FileEncryptionInfo fileEncryptionInfo = null;
@@ -562,6 +572,76 @@ implements ByteBufferReadable, CanSetDropBehind, CanSetReadahead,
       }
 
       return blocks;
+    }
+  }
+
+  public String getBlockFilePath() throws IOException {
+    if (locatedBlocks == null) {
+      throw new IOException("DFSInputStream not initialized!");
+    }
+
+    if (blockFilePath == null) {
+      DatanodeInfo[] nodes = locatedBlocks.get(0).getLocations();
+      Socket socket = createWriteSocketChannel(nodes[0], 8899);
+      try {
+        blockFilePath = getLocalWriteFile(locatedBlocks.get(0).getBlock(), socket.getChannel());
+      } finally {
+        socket.close();
+      }
+
+      File check = new File(blockFilePath);
+      if (!check.exists()) {
+        throw new IOException("Block file: " + blockFilePath +" not exists!");
+      }
+    }
+    return blockFilePath;
+  }
+
+  private Socket createWriteSocketChannel(DatanodeInfo datanode,int port) throws IOException {
+    String dnAddr = datanode.getIpAddr();
+    InetSocketAddress isa = NetUtils.createSocketAddr(dnAddr,port);
+    Socket sock = dfsClient.socketFactory.createSocket();
+    int timeout = dfsClient.getDatanodeReadTimeout(2);
+    NetUtils.connect(sock, isa, dfsClient.getRandomLocalInterfaceAddr(), dfsClient.getConf().socketTimeout);
+    sock.setSoTimeout(timeout);
+    sock.setSendBufferSize(HdfsConstants.DEFAULT_DATA_SOCKET_SIZE);
+    return sock;
+  }
+  private String getLocalWriteFile(ExtendedBlock block, SocketChannel socketChannel) throws IOException {
+    assert null != block : "You Must Apply For a block First to Create a File Channel";
+    assert  null != socketChannel :"SocketChannel for first DataNode is null";
+    ByteBuffer buf = ByteBuffer.allocate(16);
+    buf.putLong(-block.getBlockId());
+    buf.putLong(-block.getGenerationStamp());
+    buf.flip();
+    writeChannelFully(socketChannel,buf);
+    buf.clear();
+    buf.limit(4);
+    readChannelFully(socketChannel,buf,4);
+    buf.flip();
+    int pathLen = buf.getInt();
+    buf = ByteBuffer.allocate(pathLen);
+    readChannelFully(socketChannel,buf,pathLen);
+    buf.flip();
+    CharsetDecoder decoder = Charset.forName("UTF-8").newDecoder();
+    CharBuffer charBuffer = decoder.decode(buf.asReadOnlyBuffer());
+    return charBuffer.toString();
+  }
+
+  private static void readChannelFully(ReadableByteChannel ch, ByteBuffer buf,int n)
+      throws IOException {
+    while (n > 0) {
+      int ret = ch.read(buf);
+      n-=ret;
+      if (n < 0) {
+        throw new IOException("Premature EOF reading from " + ch);
+      }
+    }
+  }
+  private static void writeChannelFully(WritableByteChannel ch, ByteBuffer buf)
+      throws IOException {
+    while (buf.hasRemaining()) {
+      ch.write(buf);
     }
   }
 

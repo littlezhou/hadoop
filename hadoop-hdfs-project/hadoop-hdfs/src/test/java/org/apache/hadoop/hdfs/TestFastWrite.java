@@ -63,6 +63,10 @@ public class TestFastWrite {
 
       Assert.assertArrayEquals(toWriteBytes, readBytes);
 
+      FSDataInputStream inCheck = fs.open(myFile, 1);
+      String blockFile = ((DFSInputStream)(inCheck.getWrappedStream())).getBlockFilePath();
+      System.out.println("Block file path: " + blockFile);
+      inCheck.close();
     } finally {
       cluster.shutdown();
     }

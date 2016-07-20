@@ -4,6 +4,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
+import org.apache.hadoop.hdfs.protocol.BlockLocalPathInfo;
 import org.apache.hadoop.hdfs.protocol.ExtendedBlock;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.FsDatasetSpi;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.FsVolumeSpi;
@@ -38,6 +39,7 @@ class ShortCircuitWriteServer implements Runnable {
   private static final byte[] META_DATA = new byte[]{0, 1, 0, 0, 0, 2, 0};
 
   private String blockPoolID;
+  private FsDatasetSpi<?> fsDataset = null;
   private List<? extends FsVolumeSpi> volumes;
   int nDirs;
   File[] finalizedDirs = null;
@@ -48,6 +50,7 @@ class ShortCircuitWriteServer implements Runnable {
   private int blockIndex = 0;
 
   private final long blockSize;
+
 
   ExecutorService cachedThreadPool = Executors.newCachedThreadPool();
 
@@ -60,14 +63,11 @@ class ShortCircuitWriteServer implements Runnable {
   }
 
   private void init() {
-    FsDatasetSpi<?> fsDataset;
-    boolean bIn = false;
     while (true) {
       fsDataset =  dataNode.getFSDataset();
       try {
         Thread.sleep(2000);
       } catch (InterruptedException e) {
-        bIn = true;
       }
       if (fsDataset != null) {
         break;
@@ -244,8 +244,14 @@ class ShortCircuitWriteServer implements Runnable {
             if (tempBlockGS >= 0) {
               fn = blockTempFile.getAbsolutePath().getBytes("UTF-8");
             } else {
-              File fnDir = DatanodeUtil.idToBlockDir(finalizedDirs[volIndex], blockID);
-              fn = new File(fnDir, "blk_" + blockID).getAbsolutePath().getBytes("UTF-8");
+              String fnPath;
+              try {
+                BlockLocalPathInfo localPathInfo = fsDataset.getBlockLocalPathInfo(block);
+                fnPath = localPathInfo.getBlockPath();
+              } catch (IOException e) {
+                fnPath = "";
+              }
+              fn = fnPath.getBytes("UTF-8");
             }
             ByteBuffer len = ByteBuffer.allocate(4).putInt(fn.length);
             len.flip();
