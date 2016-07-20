@@ -2467,6 +2467,12 @@ public class DFSOutputStream extends FSOutputSummer
     long begin = Time.monotonicNow();
     if (out != null) {
       out.close();
+    } else {
+      File extFile = new File(pathName);
+      if (!extFile.exists()) {
+        throw new IOException("File must be created: " + pathName);
+      }
+      block.setNumBytes(extFile.length());
     }
     socketChannel.close();
     if(twoReplica){

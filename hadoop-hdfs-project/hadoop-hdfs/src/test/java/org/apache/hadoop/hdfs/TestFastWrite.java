@@ -9,6 +9,8 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Random;
@@ -69,6 +71,33 @@ public class TestFastWrite {
       String blockFile = ((DFSInputStream)(inCheck.getWrappedStream())).getBlockFilePath();
       System.out.println("Block file path: " + blockFile);
       inCheck.close();
+    } finally {
+      cluster.shutdown();
+    }
+  }
+
+  @Test
+  public void testFastWriteExternal() throws IOException {
+    ByteBuffer buffer = ByteBuffer.allocate(fileLen);
+    byte[] toWriteBytes = generateBytes(fileLen);
+    buffer.put(toWriteBytes);
+    buffer.flip();
+
+    try {
+      Path myFile = new Path("/test/dir/file");
+      FSDataOutputStream out = fs.create(myFile, (short) 1);
+      String outBlockPath = ((DFSOutputStream) out.getWrappedStream()).getBlockFilePath();
+      System.out.println("Block file path: " + outBlockPath);
+
+      FileOutputStream fileOs = new FileOutputStream(outBlockPath, false);
+      fileOs.write(buffer.array());
+      fileOs.close();
+
+      out.close();
+      assertTrue(fs.exists(myFile));
+
+      long writenFileLen = fs.getFileStatus(myFile).getLen();
+      Assert.assertEquals(fileLen, writenFileLen);
     } finally {
       cluster.shutdown();
     }
