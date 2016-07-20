@@ -1888,8 +1888,14 @@ public class DFSOutputStream extends FSOutputSummer
   public synchronized void write(byte b[], int off, int len)
       throws IOException {
     //write(ByteBuffer.wrap(b, off, len),true);
+    if (out == null) {
+      File f = new File(pathName);
+      f.createNewFile();
+      OutputStream outputStream = new FileOutputStream(f);
+      out = new BufferedOutputStream(outputStream,perQueueSize);
+    }
     out.write(b,off,len);
-    block.setNumBytes(block.getNumBytes()+len);
+    block.setNumBytes(block.getNumBytes() + len);
   }
 
   // @see FSOutputSummer#writeChunk()
@@ -2459,7 +2465,9 @@ public class DFSOutputStream extends FSOutputSummer
   @Override
   public void close() throws IOException {
     long begin = Time.monotonicNow();
-    out.close();
+    if (out != null) {
+      out.close();
+    }
     socketChannel.close();
     if(twoReplica){
       sChannel.close();
@@ -2506,6 +2514,7 @@ public class DFSOutputStream extends FSOutputSummer
   //###################split line:This is added.########################################
   private SocketChannel socketChannel = null;//this is for local write.
   private BufferedOutputStream out = null;
+  private String pathName = null;
   private SocketChannel sChannel = null;//this is for remote write to transfer data to second Node.
   private ExtendedBlock block = null;
 
@@ -2543,12 +2552,13 @@ public class DFSOutputStream extends FSOutputSummer
     buf.flip();
     CharsetDecoder decoder = Charset.forName("UTF-8").newDecoder();
     CharBuffer  charBuffer = decoder.decode(buf.asReadOnlyBuffer());
-    String pathName = charBuffer.toString();
-    File f = new File(pathName);
-    f.createNewFile();
-    OutputStream outputStream = new FileOutputStream(f);
-    out = new BufferedOutputStream(outputStream,perQueueSize);
+    pathName = charBuffer.toString();
   }
+
+  public String getBlockFilePath() throws IOException {
+    return pathName;
+  }
+
   private static void readChannelFully(ReadableByteChannel ch, ByteBuffer buf,int n)
           throws IOException {
     while (n > 0) {
