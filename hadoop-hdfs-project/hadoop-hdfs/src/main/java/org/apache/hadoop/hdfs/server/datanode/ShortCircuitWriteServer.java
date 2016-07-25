@@ -187,7 +187,9 @@ class ShortCircuitWriteServer implements Runnable {
     private void addBlock() throws IOException {
       long start = Time.monotonicNow();
 
-      writeFile();    // write block data file
+      if (writeFile() == 0) {
+        return ;
+      }
 //      long begin = Time.monotonicNow();
       writeMetaFile();
 
@@ -222,7 +224,8 @@ class ShortCircuitWriteServer implements Runnable {
       }
     }
 
-    private void writeFile() throws IOException {
+    private int writeFile() throws IOException {
+      int ret = 1;
       int readed = 0;
       RandomAccessFile fos = null;
       FileChannel fc = null;
@@ -252,6 +255,7 @@ class ShortCircuitWriteServer implements Runnable {
                 fnPath = "";
               }
               fn = fnPath.getBytes("UTF-8");
+              ret = 0;
             }
             ByteBuffer len = ByteBuffer.allocate(4).putInt(fn.length);
             len.flip();
@@ -268,7 +272,7 @@ class ShortCircuitWriteServer implements Runnable {
             len.flip();
             sc.read(len);
             sc.close();
-            return;
+            return ret;
           }
 
           dataNode.notifyNamenodeReceivingBlock(block, storageIDs[volIndex]);
@@ -310,12 +314,14 @@ class ShortCircuitWriteServer implements Runnable {
 //          LOG.info("File read time is:"+read_time);
 //          LOG.info("File write time is:"+write_time);
 //          LOG.info("[SCW] Write file " + file + " finished with " + dataLen + " bytes!");
+          return ret;
         } catch (IOException e) {
           LOG.error("[SCW] Write file " + blockID + " " + blockGS + " " + dataLen, e);
           //e.printStackTrace();
           throw e;
         }
       }
+      return 0;
     }
   }
 }
