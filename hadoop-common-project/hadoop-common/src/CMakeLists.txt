@@ -278,6 +278,7 @@ ENDIF()
 target_link_dual_libraries(hadoop
     ${LIB_DL}
     ${JAVA_JVM_LIBRARY}
+    aio
 )
 SET(LIBHADOOP_VERSION "1.0.0")
 SET_TARGET_PROPERTIES(hadoop PROPERTIES

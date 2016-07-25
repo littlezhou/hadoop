@@ -22,6 +22,8 @@
 #include "org_apache_hadoop.h"
 #include "org_apache_hadoop_net_unix_DomainSocket.h"
 
+#define _GNU_SOURCE
+
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
@@ -37,6 +39,12 @@
 #include <sys/types.h>
 #include <sys/un.h>
 #include <unistd.h>
+
+//#include <libaio.h>
+#include <malloc.h>
+#include <fcntl.h>
+#include <inttypes.h>
+#include <linux/aio_abi.h>
 
 #define SEND_BUFFER_SIZE org_apache_hadoop_net_unix_DomainSocket_SEND_BUFFER_SIZE
 #define RECEIVE_BUFFER_SIZE org_apache_hadoop_net_unix_DomainSocket_RECEIVE_BUFFER_SIZE
@@ -363,6 +371,421 @@ JNIEnv *env, jclass clazz, jstring path)
   }
   return fd;
 }
+
+#define BLOCK_SIZE 4096
+
+struct op_info {
+	int 			fd;
+	int 			bufsize;
+	
+	int 			bufwritten;
+	char *			bufwriting;
+	
+	aio_context_t 	ctx;
+	size_t 			offset;
+
+	int				inflying;
+	int	*			freeindexs;
+	int 			nbuffers;
+	char**			buffers;
+
+	struct io_event * events;
+	struct iocb **	allpcbs;
+	struct iocb *	alliocbs;
+};
+
+// == =========================
+long open_file_internal(char *path, int flags, int bufsize, int nbuffers)
+{
+	int fd;
+	int i;
+	struct op_info * pinfo = NULL;
+	
+	bufsize = bufsize <= 0 ? 100 * 1024 : bufsize;
+	
+	if (path == NULL || nbuffers <= 0 || bufsize % BLOCK_SIZE != 0)
+	{
+		printf("Paramters error in open_file\n");
+		return 0;
+	}
+	fd = open(path, flags);
+	if (fd < 0)
+	{
+		return 0;
+	}
+	
+	pinfo = (struct op_info *)malloc(sizeof(struct op_info));
+	memset(pinfo, 0, sizeof(struct op_info));
+	if(io_setup(nbuffers, &pinfo->ctx) != 0)
+	{
+		printf("io_setup failed!\n");
+		goto F_close;
+	}
+	pinfo->fd = fd;
+	pinfo->bufsize = bufsize;
+	pinfo->nbuffers = nbuffers;
+	
+	pinfo->buffers = (char **)malloc(sizeof(char*) * nbuffers);
+	if (pinfo->buffers == NULL)
+	{
+		goto F_close;
+	}
+	memset(pinfo->buffers, 0, sizeof(char*) * nbuffers);
+
+	for( i = 0; i < nbuffers; i++)
+	{
+		pinfo->buffers[i] = (char *)memalign(4096, bufsize);
+		//printf("Buf --> %p  \n", pinfo->buffers[i]);
+		if (pinfo->buffers[i] == NULL)
+		{
+			goto F_free_buffers;
+		}
+	}
+	
+	pinfo->events = (struct io_event *)malloc(sizeof(struct io_event) * nbuffers);
+	if (pinfo->events == NULL)
+	{
+		goto F_free_buffers;
+	}
+
+	pinfo->allpcbs = (struct iocb **)malloc(sizeof(struct iocb *) * nbuffers);
+	if (pinfo->allpcbs == NULL)
+	{
+		goto F_free_io_event;
+	}
+
+	pinfo->alliocbs = (struct iocb *)malloc(sizeof(struct iocb) * nbuffers);
+	if (pinfo->alliocbs == NULL)
+	{
+		goto F_free_allpcbs;
+	}
+	memset(pinfo->alliocbs, 0, sizeof(struct iocb) * nbuffers);
+
+	pinfo->freeindexs = (int *)malloc(sizeof(int) * nbuffers);
+	if (pinfo->freeindexs == NULL)
+	{
+		goto F_free_alliocbs;
+	}
+	for (i = 0; i < nbuffers; i++)
+	{
+		pinfo->freeindexs[i] = i;
+	}
+	pinfo->bufwriting = pinfo->buffers[0];
+
+	return (long)pinfo;
+
+F_free_alliocbs:
+	free(pinfo->alliocbs);
+
+F_free_allpcbs:
+	free(pinfo->allpcbs);
+
+F_free_io_event:
+	free(pinfo->events);
+
+F_free_buffers:
+	for( i = 0; i < nbuffers; i++)
+	{
+		if (pinfo->buffers[i] != NULL)
+		{
+			free(pinfo->buffers[i]);
+		}
+	}
+	free(pinfo->buffers);
+	pinfo->buffers = NULL;
+
+F_close:
+	close(fd);
+	unlink(path);
+	free(pinfo);
+	return 0;
+}
+
+long create_file(char *path, int bufSize, int numConcurrent)
+{
+	int flags = O_WRONLY | O_CREAT | O_DIRECT | O_TRUNC;
+	return open_file_internal(path, flags, bufSize, numConcurrent);
+}
+
+long open_file(char *path, int bufSize, int numConcurrent)
+{
+	int flags = O_RDONLY | O_DIRECT;
+	return open_file_internal(path, flags, bufSize, numConcurrent);
+}
+
+int fire_write(long file, int onclose)
+{
+	int ret;
+	struct iocb *freep;
+	
+	struct op_info *pinfo = (struct op_info*)(file);
+	int useid;
+	struct iocb * p;
+	
+	int writesize = pinfo->bufwritten;
+	int nwait;
+	int i, id;
+	
+	if (onclose)
+	{
+		writesize = ((writesize + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE;
+	}
+	
+	if (writesize > 0)
+	{
+		useid = pinfo->freeindexs[pinfo->inflying];
+		p = &(pinfo->alliocbs[useid]);
+		p->aio_fildes = pinfo->fd;
+		p->aio_lio_opcode = IOCB_CMD_PWRITE;
+		p->aio_buf = (uint64_t)(pinfo->bufwriting);
+		p->aio_offset = pinfo->offset;
+		p->aio_nbytes = writesize;
+
+		pinfo->allpcbs[0] = p;
+
+		ret = io_submit(pinfo->ctx, 1, pinfo->allpcbs);
+		if (ret != 1)
+		{
+			printf("io_submit error %d\n", ret);
+			return -1;
+		}
+		pinfo->inflying++;
+	}
+	
+	if (pinfo->nbuffers - pinfo->inflying <= 0 || (onclose && pinfo->inflying > 0))
+	{
+		nwait = onclose ? pinfo->inflying : 1;
+		ret = io_getevents(pinfo->ctx, nwait, pinfo->inflying, pinfo->events, NULL);
+		if (ret > 0)
+		{
+			for (i = 0; i < ret; i++)
+			{
+				freep = (struct iocb *)(pinfo->events[i].obj);
+				id = freep - pinfo->alliocbs;
+				pinfo->inflying--;
+				pinfo->freeindexs[pinfo->inflying] = id;
+			}
+		}
+		else if (ret < 0)
+		{
+			printf("io_getevents error %d \n", ret);
+			return -1;
+		}
+	}
+
+	if (writesize > 0)
+	{
+		useid = pinfo->freeindexs[pinfo->inflying];
+		pinfo->bufwriting = pinfo->buffers[useid];
+		pinfo->offset += pinfo->bufwritten;
+		pinfo->bufwritten = 0;
+	}
+
+	if (onclose)
+	{
+		ftruncate(pinfo->fd, pinfo->offset);
+	}
+	return 1;
+}
+
+int write_file(long file, void *pdata, int datalen)
+{
+	struct op_info *pinfo = (struct op_info*)(file);
+	int dataleft = datalen;
+	int bufleft = pinfo->bufsize - pinfo->bufwritten;
+	char *pbuf = pinfo->bufwriting + pinfo->bufwritten;
+	int tocopy;
+	int written = 0;
+	
+	while (written < datalen)
+	{
+		tocopy = bufleft >  dataleft ? dataleft : bufleft;
+		memcpy(pbuf, ((char*)pdata) + written, tocopy);
+		
+		dataleft -= tocopy;
+		bufleft -= tocopy;
+		pinfo->bufwritten += tocopy;
+		
+		if (bufleft > 0)
+		{
+			break;
+		}
+		else
+		{
+			if(fire_write(file, 0) < 0)
+			{
+				return written;
+			}
+			bufleft = pinfo->bufsize - pinfo->bufwritten;
+			pbuf = pinfo->bufwriting + pinfo->bufwritten;
+		}
+		written += tocopy;
+	}
+	return datalen;
+}
+
+long read_file(long file, long offset, char *pbuf, long buflen)
+{
+	int i, ntosub, left, useid, ret, nwait, id;
+	int npages;
+	struct iocb * p;
+	struct op_info *pinfo = (struct op_info*)(file);
+	long alignsize;
+	
+	if (((long)pbuf) & (BLOCK_SIZE - 1) != 0)
+	{
+		return -1;
+	}
+	
+	int halfwait = (pinfo->nbuffers + 1) / 2;
+	struct iocb * freep;
+	
+	
+	npages = (buflen + BLOCK_SIZE - 1) / BLOCK_SIZE;
+	alignsize = (long)(npages) * BLOCK_SIZE;
+	
+	while (npages > 0)
+	{
+		left = pinfo->nbuffers - pinfo->inflying;
+		for (ntosub = 0; ntosub < left && npages > 0; ntosub++, npages--)
+		{
+			useid = pinfo->freeindexs[pinfo->inflying];
+			p = &(pinfo->alliocbs[useid]);
+			p->aio_fildes = pinfo->fd;
+			p->aio_lio_opcode = IOCB_CMD_PREAD;
+			p->aio_buf = (uint64_t)(pbuf);
+			p->aio_offset = offset;
+			p->aio_nbytes = BLOCK_SIZE;
+
+			pinfo->allpcbs[ntosub] = p;
+			pinfo->inflying++;
+			offset += BLOCK_SIZE;
+			pbuf += BLOCK_SIZE;
+		}
+		
+		if (ntosub > 0)
+		{
+			ret = io_submit(pinfo->ctx, ntosub, pinfo->allpcbs);
+			if (ret != ntosub)
+			{
+				printf("io_submit error %d/%d\n", ret, ntosub);
+				return -2;
+			}
+		}
+		
+		nwait = npages > 0 ? halfwait : pinfo->inflying;
+		ret = io_getevents(pinfo->ctx, nwait, pinfo->inflying, pinfo->events, NULL);
+		if ( ret > 0)
+		{
+			for (i = 0; i < ret; i++)
+			{
+				freep = (struct iocb *)(pinfo->events[i].obj);
+				id = freep - pinfo->alliocbs;
+				pinfo->inflying--;
+				pinfo->freeindexs[pinfo->inflying] = id;
+			}
+		}
+		else
+		{
+			printf("io_getevents error %d \n", ret);
+			return -3;
+		}
+	}
+	return buflen < alignsize ? buflen : alignsize;
+}
+
+void close_file(long file)
+{
+	int i;
+	struct op_info *pinfo = (struct op_info*)(file);
+	if (pinfo == NULL)
+	{
+		return;
+	}
+
+	fire_write(file, 1);
+
+	close(pinfo->fd);
+	pinfo->fd = -1;
+	io_destroy(pinfo->ctx);
+
+	free(pinfo->freeindexs);
+	free(pinfo->alliocbs);
+	free(pinfo->allpcbs);
+	free(pinfo->events);
+
+	for( i = 0; i < pinfo->nbuffers; i++)
+	{
+		if (pinfo->buffers[i] != NULL)
+		{
+			free(pinfo->buffers[i]);
+		}
+	}
+	free(pinfo->buffers);
+	pinfo->buffers = NULL;
+
+	free(pinfo);
+}
+
+JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_create_1file
+  (JNIEnv * env, jclass obj, jstring filePath, jint bufSize, jint numConcurrent)
+{
+	char *path;
+	path = (*env)->GetStringUTFChars(env, filePath, NULL);
+	long ret = create_file(path, bufSize, numConcurrent);
+	(*env)->ReleaseStringUTFChars(env, filePath, path);
+	return ret;
+}
+
+/*
+ * Class:     org_apache_hadoop_net_unix_DomainSocket
+ * Method:    write_file
+ * Signature: (JJI)J
+ */
+JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_write_1file
+  (JNIEnv * env, jclass obj, jlong file, jlong pdata, jint dataLen)
+{
+	return write_file(file, (void *)pdata, dataLen);
+}
+
+/*
+ * Class:     org_apache_hadoop_net_unix_DomainSocket
+ * Method:    close_file
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_close_1file
+  (JNIEnv * env, jclass obj, jlong file)
+{
+	close_file(file);
+}
+
+/*
+ * Class:     org_apache_hadoop_net_unix_DomainSocket
+ * Method:    open_file
+ * Signature: (Ljava/lang/String;II)J
+ */
+JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_open_1file
+    (JNIEnv * env, jclass obj, jstring filePath, jint bufSize, jint numConcurrent)
+{
+	char *path;
+	path = (*env)->GetStringUTFChars(env, filePath, NULL);
+	long ret = open_file(path, bufSize, numConcurrent);
+	(*env)->ReleaseStringUTFChars(env, filePath, path);
+	return ret;
+}
+
+/*
+ * Class:     org_apache_hadoop_net_unix_DomainSocket
+ * Method:    read_file
+ * Signature: (JJJJ)J
+ */
+JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_read_1file
+  (JNIEnv * env, jclass obj, jlong file, jlong fileOffset, jlong bufAddr, jlong bufLen)
+{
+	return read_file(file, fileOffset, (char*)bufAddr, bufLen);
+}
+
+//==========================================================
 
 #define SOCKETPAIR_ARRAY_LEN 2
 
