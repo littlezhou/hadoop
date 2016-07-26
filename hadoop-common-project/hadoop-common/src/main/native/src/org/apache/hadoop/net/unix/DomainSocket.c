@@ -630,24 +630,24 @@ long read_file(long file, long offset, char *pbuf, long buflen)
 	int npages;
 	struct iocb * p;
 	struct op_info *pinfo = (struct op_info*)(file);
-	long alignsize;
-	
+
 	if (((long)pbuf) & (BLOCK_SIZE - 1) != 0)
 	{
 		return -1;
 	}
-	
+
 	int halfwait = (pinfo->nbuffers + 1) / 2;
 	struct iocb * freep;
-	
-	
+	long totalleft, toread;
+
+
 	npages = (buflen + BLOCK_SIZE - 1) / BLOCK_SIZE;
-	alignsize = (long)(npages) * BLOCK_SIZE;
-	
-	while (npages > 0)
+	totalleft = (long)(npages) * BLOCK_SIZE;
+
+	while (totalleft > 0)
 	{
 		left = pinfo->nbuffers - pinfo->inflying;
-		for (ntosub = 0; ntosub < left && npages > 0; ntosub++, npages--)
+		for (ntosub = 0; ntosub < left && totalleft > 0; ntosub++)
 		{
 			useid = pinfo->freeindexs[pinfo->inflying];
 			p = &(pinfo->alliocbs[useid]);
@@ -655,14 +655,18 @@ long read_file(long file, long offset, char *pbuf, long buflen)
 			p->aio_lio_opcode = IOCB_CMD_PREAD;
 			p->aio_buf = (uint64_t)(pbuf);
 			p->aio_offset = offset;
-			p->aio_nbytes = BLOCK_SIZE;
+
+			toread = totalleft > pinfo->bufsize ? pinfo->bufsize : totalleft;
+			p->aio_nbytes = toread;
 
 			pinfo->allpcbs[ntosub] = p;
+
 			pinfo->inflying++;
-			offset += BLOCK_SIZE;
-			pbuf += BLOCK_SIZE;
+			offset += toread;
+			pbuf += toread;
+			totalleft -= toread;
 		}
-		
+
 		if (ntosub > 0)
 		{
 			ret = io_submit(pinfo->ctx, ntosub, pinfo->allpcbs);
@@ -672,8 +676,8 @@ long read_file(long file, long offset, char *pbuf, long buflen)
 				return -2;
 			}
 		}
-		
-		nwait = npages > 0 ? halfwait : pinfo->inflying;
+
+		nwait = totalleft > 0 ? halfwait : pinfo->inflying;
 		ret = io_getevents(pinfo->ctx, nwait, pinfo->inflying, pinfo->events, NULL);
 		if ( ret > 0)
 		{
@@ -691,7 +695,7 @@ long read_file(long file, long offset, char *pbuf, long buflen)
 			return -3;
 		}
 	}
-	return buflen < alignsize ? buflen : alignsize;
+	return buflen;
 }
 
 void close_file(long file)
