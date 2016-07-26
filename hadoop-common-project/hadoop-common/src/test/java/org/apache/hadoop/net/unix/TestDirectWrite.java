@@ -28,6 +28,63 @@ public class TestDirectWrite {
   }
 
   @Test(timeout=2000000)
+  public void perf_test_write() {
+    Unsafe inst;
+    try {
+      inst = getUnsafeInstance();
+    } catch (Exception e) {
+      return;
+    }
+
+    int i;
+    String path = "/mnt/ssd/tmp/filetest";
+    int dataSize = 1 * 1024 *1024;
+    long srcBuf = inst.allocateMemory(dataSize);
+    for(i = 0; i < dataSize; i++) {
+      inst.putByte(srcBuf + i, (byte) (65 + i % 26));
+    }
+    long dataAddr = srcBuf;
+    long f =  DomainSocket.create_file(path, 64 *1024, 1);
+    for (i = 0; i < 999999999; i++)
+    {
+      DomainSocket.write_file(f, dataAddr, dataSize);
+    }
+    DomainSocket.close_file(f);
+
+  }
+
+  @Test(timeout=2000000)
+  public void perf_test_read() {
+    Unsafe inst;
+    try {
+      inst = getUnsafeInstance();
+    } catch (Exception e) {
+      return;
+    }
+
+    int i;
+    String path = "/root/CentOS-6.6-x86_64-bin-DVD2.iso";
+    File file = new File(path);
+    if (!file.exists()) {
+      System.out.println("File " + file + " does not exist or open error!");
+      return;
+    }
+    long fileSize = file.length();
+
+    long readBuf = inst.allocateMemory(fileSize + 4096 * 2);
+    long alignReadBuf = ((readBuf + 4096 - 1) /  4096) * 4096;
+
+    long f =  DomainSocket.open_file(path, 512 * 1024, 1);
+    if (f == 0)
+    {
+      System.out.print("create file error\n");
+    }
+    long bytesRead = DomainSocket.read_file(f, 0, alignReadBuf, fileSize);
+    DomainSocket.close_file(f);
+
+  }
+
+  @Test(timeout=2000000)
   public void perf_test_2() {
     String path = "/tmp/filetest";
     int bufsize = 64 * 1024;
@@ -35,7 +92,7 @@ public class TestDirectWrite {
 
     long dataAddr;
     long f;
-    int dataSize = 1300;
+    int dataSize = 710473407;
     int i;
 
     Unsafe inst;
