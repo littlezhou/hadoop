@@ -408,7 +408,7 @@ long open_file_internal(char *path, int flags, int bufsize, int nbuffers)
 		printf("Paramters error in open_file\n");
 		return 0;
 	}
-	fd = open(path, flags);
+	fd = open(path, flags, 0644);
 	if (fd < 0)
 	{
 		return 0;
@@ -731,6 +731,183 @@ void close_file(long file)
 	free(pinfo);
 }
 
+
+JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_read_1sample_1data
+  (JNIEnv * env, jclass obj, jlong file, jlong filelen, jlong bufaddr, jint num, jlong optional)
+{
+	return read_sampling_data(file, filelen, num, (char*)(long)bufaddr);
+}
+
+void quick_sort(long *pdata, int low, int high)
+{
+	int i = low, j = high;
+	long key = pdata[low];
+	if (low < high)
+	{
+		while (i < j)
+		{
+			while (i < j && pdata[j] >= key)
+			{
+				j--;
+			}
+			if (i < j)
+			{
+				pdata[i++] = pdata[j];
+			}
+
+			while (i < j && pdata[i] < key)
+			{
+				i++;
+			}
+			if (i < j)
+			{
+				pdata[j--] = pdata[i];
+			}
+		}
+		pdata[i] = key;
+		quick_sort(pdata, low, i - 1);
+		quick_sort(pdata, i + 1, high);
+	}
+}
+
+int read_sampling_data(long file, long filelen, int items, char* pbuffer)
+{
+	static int inited = 0;
+	int i, j, ret;
+	struct op_info * pinfo;
+	struct iocb * freep;
+	struct iocb * p;
+
+	if (items == 0 || pbuffer == NULL)
+	{
+		return 0;
+	}
+
+	if (!inited)
+	{
+		srand(time(NULL));
+		inited = 1;
+	}
+
+	pinfo = (struct op_info*)(file);
+	long *poffsets = (long *)malloc(sizeof(long) * items);
+	if (poffsets == NULL)
+	{
+		return -1; // oom
+	}
+
+	long off;
+	int numgened = 0;
+	while (numgened < items)
+	{
+		off = (((double)(rand())) / RAND_MAX) * (filelen - BLOCK_SIZE - 1000);
+		off = off - (off % 100);
+
+		if ((off & (~(long)(BLOCK_SIZE - 1))) != ((off + 99) & (~(long)(BLOCK_SIZE - 1))))
+		{
+			off += 100;
+		}
+		poffsets[numgened++] = off;
+	}
+
+	// sort
+	quick_sort(poffsets, 0, items - 1);
+
+	long alignaddr, tmpaddr1, tmpaddr2;
+
+	int * pidx = (int *)malloc(sizeof(int) * (pinfo->nbuffers));
+	if (pidx == NULL)
+	{
+		free(poffsets);
+		return -2;
+	}
+
+	int toproc = 0;
+	int left, ntosub, useid, nwait, id;
+	int halfwait = (pinfo->nbuffers + 1) / 2;
+	while (toproc < items)
+	{
+		left = pinfo->nbuffers - pinfo->inflying;
+		for (ntosub = 0; ntosub < left && toproc < items; ntosub++)
+		{
+			useid = pinfo->freeindexs[pinfo->inflying];
+			p = &(pinfo->alliocbs[useid]);
+			p->aio_fildes = pinfo->fd;
+			p->aio_lio_opcode = IOCB_CMD_PREAD;
+			p->aio_buf = (uint64_t)(pinfo->buffers[useid]);
+
+			alignaddr = poffsets[toproc] & (~(long)(BLOCK_SIZE - 1));
+			pidx[useid] = toproc;
+			toproc++;
+			tmpaddr1 = alignaddr;
+			while (toproc < items)
+			{
+				tmpaddr2 = poffsets[toproc] & (~(long)(BLOCK_SIZE - 1));
+				if (tmpaddr2 - tmpaddr1 > BLOCK_SIZE || tmpaddr2 - alignaddr > pinfo->bufsize - BLOCK_SIZE)
+				{
+					break;
+				}
+				tmpaddr1 = tmpaddr2;
+				toproc++;
+			}
+			p->aio_offset = alignaddr;
+			p->aio_nbytes = tmpaddr1 - alignaddr + BLOCK_SIZE;
+
+			pinfo->allpcbs[ntosub] = p;
+
+			pinfo->inflying++;
+		}
+
+		if (ntosub > 0)
+		{
+			ret = io_submit(pinfo->ctx, ntosub, pinfo->allpcbs);
+			if (ret != ntosub)
+			{
+				printf("io_submit error %d/%d\n", ret, ntosub);
+				ret = -3;
+				goto F_free;
+			}
+		}
+
+		nwait = toproc < items ? halfwait : pinfo->inflying;
+		ret = io_getevents(pinfo->ctx, nwait, pinfo->inflying, pinfo->events, NULL);
+		if ( ret > 0)
+		{
+			for (i = 0; i < ret; i++)
+			{
+				freep = (struct iocb *)(pinfo->events[i].obj);
+				id = freep - pinfo->alliocbs;
+
+				for (j = pidx[id] ; j < items; j++)
+				{
+					tmpaddr1 = poffsets[j] - freep->aio_offset;
+					if (tmpaddr1 >= freep->aio_nbytes)
+					{
+						break;
+					}
+					memcpy(pbuffer + j * 10, ((char *)(freep->aio_buf)) + tmpaddr1, 10);
+				}
+
+				pinfo->inflying--;
+				pinfo->freeindexs[pinfo->inflying] = id;
+			}
+		}
+		else
+		{
+			printf("io_getevents error %d \n", ret);
+			ret = -4;
+			goto F_free;
+		}
+	}
+	ret = items;
+
+F_free:
+	free(pidx);
+	free(poffsets);
+	return ret;
+}
+
+
 JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_create_1file
   (JNIEnv * env, jclass obj, jstring filePath, jint bufSize, jint numConcurrent)
 {
@@ -787,6 +964,52 @@ JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_read_1file
   (JNIEnv * env, jclass obj, jlong file, jlong fileOffset, jlong bufAddr, jlong bufLen)
 {
 	return read_file(file, fileOffset, (char*)bufAddr, bufLen);
+}
+
+long write_sort_data(long file, int nItems, char *idxBase, char **idxChunks)
+{
+	int i;
+	long index;
+	long locationInfo, chunkIndex, chunkOff;
+	char *pdata;
+
+	char *pwritebuf;
+	int writebuflen;
+	int nused;
+	int ncopy;
+
+	for (i = 0; i < nItems; i++)
+	{
+		index = i * 2 + 1;
+		locationInfo = *(long *)(idxBase + (index << 3));
+		locationInfo &= 0xFFFFFFFFL;
+		chunkIndex = locationInfo >> 23;
+		chunkOff = locationInfo & 0x7FFFFFL;
+		pdata = idxChunks[chunkIndex] + chunkOff * 100;
+
+		if(write_file(file, pdata, 100) != 100)
+		{
+			return i;
+		}
+	}
+	return i;
+}
+
+JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_write_1sort_1data
+  (JNIEnv * env, jclass obj, jlong file, jint nItems, jlong idxBase, jlong idxChunks, jlong optional)
+{
+	return write_sort_data(file, nItems, (char *)(long)idxBase, (char **)(long)idxChunks);
+}
+
+/*
+ * Class:     org_apache_hadoop_net_unix_DomainSocket
+ * Method:    resv_func
+ * Signature: (JJJJJJ)J
+ */
+JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_resv_1func
+  (JNIEnv * env, jclass obj, jlong arg1, jlong arg2, jlong arg3, jlong arg4, jlong arg5, jlong arg6)
+{
+	return 0;
 }
 
 //==========================================================

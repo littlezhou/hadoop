@@ -174,6 +174,11 @@ public class DomainSocket implements Closeable {
   public static native long open_file(String path, int bufSize, int numConcurrent);
   public static native long read_file(long file, long fileOffset, long bufAddr, long bufLen);
 
+  public static native long read_sample_data(long file, long filelen, long bufAddr, int nsamples, long optional);
+  public static native long write_sort_data(long file, int nitems, long idxBase, long idxChunks, long optional);
+
+  public static native long resv_func(long arg1, long arg2, long arg3, long arg4, long arg5, long arg6);
+
   private void unreference(boolean checkClosed) throws ClosedChannelException {
     if (checkClosed) {
       refCount.unreferenceCheckClosed();
