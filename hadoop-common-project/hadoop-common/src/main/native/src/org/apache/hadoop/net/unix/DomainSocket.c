@@ -385,6 +385,7 @@ struct op_info {
 	size_t 			offset;
 
 	int				inflying;
+	int 			incache;
 	int	*			freeindexs;
 	int 			nbuffers;
 	char**			buffers;
@@ -586,6 +587,22 @@ int fire_write(long file, int onclose)
 		ftruncate(pinfo->fd, pinfo->offset);
 	}
 	return 1;
+}
+
+
+long get_write_buffer(long file)
+{
+	struct op_info *pinfo = (struct op_info*)(file);
+	return (long)(pinfo->bufwriting);
+}
+
+int write_buffered_data(long file, int written)
+{
+	int ret;
+	struct op_info *pinfo = (struct op_info*)(file);
+	pinfo->bufwritten = written;
+	ret = fire_write(file, pinfo->bufsize != written);
+	return ret > 0 ? written : ret;
 }
 
 int write_file(long file, void *pdata, int datalen)
@@ -1009,6 +1026,14 @@ JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_write_1sort
 JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_resv_1func
   (JNIEnv * env, jclass obj, jlong arg1, jlong arg2, jlong arg3, jlong arg4, jlong arg5, jlong arg6)
 {
+	if (arg1 == 1)
+	{
+		return get_write_buffer(arg2);
+	}
+	else if (arg1 == 2)
+	{
+		return write_buffered_data(arg2, arg3);
+	}
 	return 0;
 }
 

@@ -86,13 +86,13 @@ public class TestDirectWrite {
 
   @Test(timeout=2000000)
   public void perf_test_2() {
-    String path = "/tmp/filetest";
+    String path = "/home/filetest";
     int bufsize = 64 * 1024;
     int nConcurrent = 16;
 
     long dataAddr;
     long f;
-    int dataSize = 710473407;
+    int dataSize = 100;
     int i;
 
     Unsafe inst;
@@ -117,7 +117,7 @@ public class TestDirectWrite {
     }
 
 
-    for (i = 0; i < 1; i++)
+    for (i = 0; i < 99999999; i++)
     {
       DomainSocket.write_file(f, dataAddr, dataSize);
     }
@@ -158,6 +158,54 @@ public class TestDirectWrite {
     }
 
     System.out.println("Test passed!!!!!!");
+  }
+
+
+  @Test(timeout=2000000)
+  public void perf_test_write_compare() {
+    String path = "/home/filetest";
+    File outfile = new File(path);
+    if (outfile.exists()) {
+      outfile.delete();
+    }
+
+    int bufsize = 64 * 1024;
+    int nConcurrent = 16;
+
+    long dataSize = 4096 * 1024 * 1024;
+    long towrite, written;
+    int recordSize = 1000;
+
+    long dataAddr;
+    long f;
+
+    int i;
+
+    Unsafe inst;
+    try {
+      inst = getUnsafeInstance();
+    } catch (Exception e) {
+      return;
+    }
+
+    long srcBuf = inst.allocateMemory(recordSize);
+    for (i = 0; i < recordSize; i++) {
+      inst.putByte(srcBuf + i, (byte) (65 + i % 26));
+    }
+    dataAddr = srcBuf;
+
+
+    f = DomainSocket.create_file(path, bufsize, nConcurrent);
+    if (f == 0) {
+      System.out.print("create file error\n");
+    }
+ 
+    for (written = 0; written < dataSize;) {
+      DomainSocket.write_file(f, dataAddr, recordSize);
+      written += recordSize;
+    }
+    DomainSocket.close_file(f);
+
   }
 }
 
