@@ -179,6 +179,8 @@ public class DomainSocket implements Closeable {
 
   public static native long resv_func(long arg1, long arg2, long arg3, long arg4, long arg5, long arg6);
 
+  public static native long mege_files(String outputfile, String[] inputfiles, long memaddr, int memrecords, int buffersize);
+
   private void unreference(boolean checkClosed) throws ClosedChannelException {
     if (checkClosed) {
       refCount.unreferenceCheckClosed();
