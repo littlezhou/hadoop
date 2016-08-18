@@ -168,6 +168,9 @@ public class DomainSocket implements Closeable {
   private static native int bind0(String path) throws IOException;
 
   public static native long create_file(String path, int bufSize, int numConcurrent, long estFileSize, long mode);
+  public static long create_file(String path, int bufSize, int numConcurrent) {
+    return create_file(path, bufSize, numConcurrent, 600 * 1024 * 1024, 0);
+  }
   public static native long write_file(long file, long addr, int datalen);
   public static native void close_file(long file);
 

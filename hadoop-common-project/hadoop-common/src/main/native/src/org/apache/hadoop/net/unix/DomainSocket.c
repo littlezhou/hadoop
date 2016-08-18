@@ -45,6 +45,7 @@
 #include <fcntl.h>
 #include <inttypes.h>
 #include <linux/aio_abi.h>
+#include <errno.h>
 
 #define SEND_BUFFER_SIZE org_apache_hadoop_net_unix_DomainSocket_SEND_BUFFER_SIZE
 #define RECEIVE_BUFFER_SIZE org_apache_hadoop_net_unix_DomainSocket_RECEIVE_BUFFER_SIZE
@@ -561,7 +562,15 @@ int fire_write(long file, int onclose)
 	if (pinfo->nbuffers - pinfo->inflying <= 0 || (onclose && pinfo->inflying > 0))
 	{
 		nwait = onclose ? pinfo->inflying : 1;
-		ret = io_getevents(pinfo->ctx, nwait, pinfo->inflying, pinfo->events, NULL);
+		while (1)
+		{
+			ret = io_getevents(pinfo->ctx, nwait, pinfo->inflying, pinfo->events, NULL);
+			if (ret == -EINTR)
+			{
+				continue;
+			}
+			break;
+		}
 		if (ret > 0)
 		{
 			for (i = 0; i < ret; i++)
@@ -594,6 +603,11 @@ int fire_write(long file, int onclose)
 	return 1;
 }
 
+int get_file_fd(long file)
+{
+	struct op_info *pinfo = (struct op_info*)(file);
+	return pinfo->fd;
+}
 
 long get_write_buffer(long file)
 {
