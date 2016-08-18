@@ -44,7 +44,7 @@ public class TestDirectWrite {
       inst.putByte(srcBuf + i, (byte) (65 + i % 26));
     }
     long dataAddr = srcBuf;
-    long f =  DomainSocket.create_file(path, 64 *1024, 1);
+    long f =  DomainSocket.create_file(path, 64 *1024, 1, 10L * 1024 * 1024 * 1024, 0);
     for (i = 0; i < 999999999; i++)
     {
       DomainSocket.write_file(f, dataAddr, dataSize);
@@ -110,7 +110,7 @@ public class TestDirectWrite {
 
 
 
-    f =  DomainSocket.create_file(path, bufsize, nConcurrent);
+    f =  DomainSocket.create_file(path, bufsize, nConcurrent, 10L * 1024 * 1024 * 1024, 0);
     if (f == 0)
     {
       System.out.print("create file error\n");
@@ -160,6 +160,21 @@ public class TestDirectWrite {
     System.out.println("Test passed!!!!!!");
   }
 
+  @Test(timeout=2000000)
+  public void perf_test_merge_sort() {
+    int i;
+    String dir = "/home/Alltests/dirwrite/";
+    String outfile = dir + "xx.result";
+    int nfiles = 50;
+    String[] inFiles = new String[nfiles];
+    for (i = 0; i < nfiles; i++)
+    {
+      inFiles[i] = dir + "xx" + i;
+    }
+    long ret = DomainSocket.mege_files(outfile, inFiles, 0, 0, 100 * 1024);
+    ret++;
+  }
+
 
   @Test(timeout=2000000)
   public void perf_test_write_compare() {
@@ -172,7 +187,7 @@ public class TestDirectWrite {
     int bufsize = 64 * 1024;
     int nConcurrent = 16;
 
-    long dataSize = 4096 * 1024 * 1024;
+    long dataSize = 4096L * 1024 * 1024;
     long towrite, written;
     int recordSize = 1000;
 
@@ -195,17 +210,17 @@ public class TestDirectWrite {
     dataAddr = srcBuf;
 
 
-    f = DomainSocket.create_file(path, bufsize, nConcurrent);
+    f = DomainSocket.create_file(path, bufsize, nConcurrent, 10L * 1024 * 1024 * 1024, 0);
     if (f == 0) {
       System.out.print("create file error\n");
     }
- 
+
+    long lenWritten;
     for (written = 0; written < dataSize;) {
-      DomainSocket.write_file(f, dataAddr, recordSize);
-      written += recordSize;
+      lenWritten = DomainSocket.write_file(f, dataAddr, recordSize);
+      written += lenWritten;
     }
     DomainSocket.close_file(f);
-
   }
 }
 

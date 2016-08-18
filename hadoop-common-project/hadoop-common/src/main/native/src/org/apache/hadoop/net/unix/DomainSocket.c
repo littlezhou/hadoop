@@ -199,7 +199,7 @@ static jthrowable setup(JNIEnv *env, int *ofd, jobject jpath, int doConnect)
   }
 #endif
   if (doConnect) {
-    RETRY_ON_EINTR(ret, connect(fd, 
+    RETRY_ON_EINTR(ret, connect(fd,
         (struct sockaddr*)&addr, sizeof(addr)));
     if (ret < 0) {
       ret = errno;
@@ -377,10 +377,10 @@ JNIEnv *env, jclass clazz, jstring path)
 struct op_info {
 	int 			fd;
 	int 			bufsize;
-	
+
 	int 			bufwritten;
 	char *			bufwriting;
-	
+
 	aio_context_t 	ctx;
 	size_t 			offset;
 
@@ -396,14 +396,14 @@ struct op_info {
 };
 
 // == =========================
-long open_file_internal(char *path, int flags, int bufsize, int nbuffers)
+long open_file_internal(char *path, int flags, int bufsize, int nbuffers, long estSize)
 {
 	int fd;
 	int i;
 	struct op_info * pinfo = NULL;
-	
+
 	bufsize = bufsize <= 0 ? 100 * 1024 : bufsize;
-	
+
 	if (path == NULL || nbuffers <= 0 || bufsize % BLOCK_SIZE != 0)
 	{
 		printf("Paramters error in open_file\n");
@@ -414,7 +414,12 @@ long open_file_internal(char *path, int flags, int bufsize, int nbuffers)
 	{
 		return 0;
 	}
-	
+
+	if (flags & O_CREAT)
+	{
+		ftruncate(fd, estSize);
+	}
+
 	pinfo = (struct op_info *)malloc(sizeof(struct op_info));
 	memset(pinfo, 0, sizeof(struct op_info));
 	if(io_setup(nbuffers, &pinfo->ctx) != 0)
@@ -425,7 +430,7 @@ long open_file_internal(char *path, int flags, int bufsize, int nbuffers)
 	pinfo->fd = fd;
 	pinfo->bufsize = bufsize;
 	pinfo->nbuffers = nbuffers;
-	
+
 	pinfo->buffers = (char **)malloc(sizeof(char*) * nbuffers);
 	if (pinfo->buffers == NULL)
 	{
@@ -442,7 +447,7 @@ long open_file_internal(char *path, int flags, int bufsize, int nbuffers)
 			goto F_free_buffers;
 		}
 	}
-	
+
 	pinfo->events = (struct io_event *)malloc(sizeof(struct io_event) * nbuffers);
 	if (pinfo->events == NULL)
 	{
@@ -502,36 +507,36 @@ F_close:
 	return 0;
 }
 
-long create_file(char *path, int bufSize, int numConcurrent)
+long create_file(char *path, int bufSize, int numConcurrent, long estSize)
 {
 	int flags = O_WRONLY | O_CREAT | O_DIRECT | O_TRUNC;
-	return open_file_internal(path, flags, bufSize, numConcurrent);
+	return open_file_internal(path, flags, bufSize, numConcurrent, estSize);
 }
 
 long open_file(char *path, int bufSize, int numConcurrent)
 {
 	int flags = O_RDONLY | O_DIRECT;
-	return open_file_internal(path, flags, bufSize, numConcurrent);
+	return open_file_internal(path, flags, bufSize, numConcurrent, 0);
 }
 
 int fire_write(long file, int onclose)
 {
 	int ret;
 	struct iocb *freep;
-	
+
 	struct op_info *pinfo = (struct op_info*)(file);
 	int useid;
 	struct iocb * p;
-	
+
 	int writesize = pinfo->bufwritten;
 	int nwait;
 	int i, id;
-	
+
 	if (onclose)
 	{
 		writesize = ((writesize + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE;
 	}
-	
+
 	if (writesize > 0)
 	{
 		useid = pinfo->freeindexs[pinfo->inflying];
@@ -552,7 +557,7 @@ int fire_write(long file, int onclose)
 		}
 		pinfo->inflying++;
 	}
-	
+
 	if (pinfo->nbuffers - pinfo->inflying <= 0 || (onclose && pinfo->inflying > 0))
 	{
 		nwait = onclose ? pinfo->inflying : 1;
@@ -613,16 +618,16 @@ int write_file(long file, void *pdata, int datalen)
 	char *pbuf = pinfo->bufwriting + pinfo->bufwritten;
 	int tocopy;
 	int written = 0;
-	
+
 	while (written < datalen)
 	{
 		tocopy = bufleft >  dataleft ? dataleft : bufleft;
 		memcpy(pbuf, ((char*)pdata) + written, tocopy);
-		
+
 		dataleft -= tocopy;
 		bufleft -= tocopy;
 		pinfo->bufwritten += tocopy;
-		
+
 		if (bufleft > 0)
 		{
 			break;
@@ -926,11 +931,11 @@ F_free:
 
 
 JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_create_1file
-  (JNIEnv * env, jclass obj, jstring filePath, jint bufSize, jint numConcurrent)
+  (JNIEnv * env, jclass obj, jstring filePath, jint bufSize, jint numConcurrent, jlong estSize, jlong mode)
 {
 	char *path;
 	path = (*env)->GetStringUTFChars(env, filePath, NULL);
-	long ret = create_file(path, bufSize, numConcurrent);
+	long ret = create_file(path, bufSize, numConcurrent, estSize);
 	(*env)->ReleaseStringUTFChars(env, filePath, path);
 	return ret;
 }
@@ -1037,6 +1042,822 @@ JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_resv_1func
 	return 0;
 }
 
+double getseconds(struct timeval *last, struct timeval *current) {
+  int sec, usec;
+  sec = current->tv_sec - last->tv_sec;
+  usec = current->tv_usec - last->tv_usec;
+  return ( (double)sec + usec*((double)(1e-6)) );
+}
+
+// -----------
+inline unsigned long cycles() {
+        unsigned int lo, hi;
+        __asm__ __volatile__ ("rdtsc" : "=a" (lo), "=d" (hi) );
+        return (((unsigned long)hi) << 32) | lo;
+}
+
+#define REC_SIZE 100
+#define SORT_BUF_SIZE (REC_SIZE * BLOCK_SIZE)
+
+#define F_IN_IO(X) (1 << (X))
+
+
+
+#define REC_SIZE 100
+#define SORT_BUF_SIZE (REC_SIZE * BLOCK_SIZE)
+
+#define F_IN_IO(X) (1 << (X))
+
+#define TIME_STAT 1
+
+#ifdef TIME_STAT
+
+#define FILL_DATA_BIO(X, Y, Z) \
+{ \
+	cycst = cycles(); \
+	fill_data_BIO((X), (Y), (Z)); \
+	cycles_read_total += cycles() - cycst; \
+}
+
+#define FILL_DATA(X, Y, Z) \
+{ \
+	cycst = cycles(); \
+	fill_data((X), (Y), (Z)); \
+	cycles_read_total += cycles() - cycst; \
+}
+
+#define FWRITE(A,B,C,D) \
+{ \
+	cycst = cycles(); \
+	fwrite((A), (B), (C), (D)); \
+	cycles_write_total += cycles() - cycst; \
+}
+
+#else
+#define FILL_DATA_BIO(X, Y, Z) 	fill_data_BIO((X), (Y), (Z));
+#define FILL_DATA(X, Y, Z) 		fill_data((X), (Y), (Z));
+#define FWRITE(A,B,C,D) 		fwrite((A), (B), (C), (D))
+#endif
+
+
+struct merge_info {
+	int 			n;
+	int  			inflying;
+	aio_context_t 	ctx;
+	struct io_event * events;
+	int *			fds;
+	long * 			lens;
+	long *			offs;
+	int * 			states;
+	unsigned char ** buffers;
+	struct iocb * 	alliocbs;
+	struct iocb ** 	allpcbs;
+};
+
+void release_merge_info(struct merge_info *p)
+{
+	io_destroy(p->ctx);
+	free(p->events);
+	free(p->fds);
+	free(p->lens);
+	free(p->offs);
+	free(p->states);
+	free(p->buffers);
+	free(p->alliocbs);
+	free(p->allpcbs);
+}
+
+int wait_for_comp(struct merge_info *pm, int idx, int bufidx)
+{
+	struct iocb * freep;
+	int id, ib;
+	int nwait = 1;
+	int exit = 0;
+	int i, ret, all = 0;
+
+	if (idx < pm->n)
+	{
+		if (!(pm->states[idx] | F_IN_IO(bufidx)))
+		{
+			return 1;
+		}
+	}
+	else
+	{
+		nwait = pm->inflying;
+	}
+
+	while (pm->inflying > 0 && !exit)
+	{
+		ret = io_getevents(pm->ctx, nwait, pm->inflying, pm->events, NULL);
+		if ( ret > 0)
+		{
+			all += ret;
+			for (i = 0; i < ret; i++)
+			{
+				freep = (struct iocb *)(pm->events[i].obj);
+				id = freep - pm->alliocbs;
+				ib = freep->aio_buf == (uint64_t)(pm->buffers[i]) ? 0 : 1;
+				pm->states[id] &= ~(F_IN_IO(ib));
+				exit += idx == id && bufidx == ib;
+				pm->inflying--;
+			}
+		}
+		else
+		{
+			return ret;
+		}
+	}
+	return all;
+}
+
+
+
+int fill_data(struct merge_info *pm, int waitidx, int bufidx)
+{
+	int i, end, shdbufidx = bufidx, ret = 0;
+	int toproc = 0;
+	struct iocb * p;
+	long tmp, left, toread;
+	int sig = waitidx >=0 && waitidx < pm->n;
+	//unsigned long cycst = cycles();
+
+	if (sig)
+	{
+		i = waitidx;
+		end = waitidx + 1;
+		shdbufidx = bufidx ? 0 : 1;
+	}
+	else
+	{
+		i = 0;
+		end = pm->n;
+	}
+
+	for(; i < end; i++)
+	{
+		left = pm->lens[i] - pm->offs[i];
+
+		if (left > 0)
+		{
+			p = pm->alliocbs + i;
+			p->aio_fildes = pm->fds[i];
+			p->aio_lio_opcode = IOCB_CMD_PREAD;
+			p->aio_buf = (uint64_t)(pm->buffers[i] + shdbufidx * SORT_BUF_SIZE);
+			p->aio_offset = pm->offs[i];
+
+			toread = left > SORT_BUF_SIZE ? SORT_BUF_SIZE : ((left + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE;
+			p->aio_nbytes = toread;
+
+			pm->offs[i] += toread;
+			pm->states[i] |= F_IN_IO(shdbufidx);
+
+			pm->allpcbs[toproc] = p;
+			toproc++;
+		}
+	}
+
+	if (toproc > 0)
+	{
+		ret = io_submit(pm->ctx, toproc, pm->allpcbs);
+		if (ret != toproc)
+		{
+			ret = -3;
+			return ret;
+		}
+		pm->inflying += ret;
+	}
+
+	if (waitidx >= 0)
+	{
+		ret = wait_for_comp(pm, waitidx, bufidx);
+	}
+	//cycles_read_total += cycles() - cycst;
+	return ret;
+}
+
+int SMALLER(unsigned char *p1, unsigned char *p2)
+{
+	int i, ret = 0;
+	return memcmp(p1, p2, 10) < 0 ? 1 : 0;
+
+	for (i = 0;i < 10 && ret == 0; i++)
+	{
+		ret = ((int)p1[i]) - ((int)p2[i]);
+	}
+	return ret < 0 ? 1 : 0;
+}
+
+void fix_up_heap(unsigned char * buffer[], int currlen)
+{
+	int i = (currlen - 1) / 2;
+	unsigned char * tmp = buffer[currlen];
+	while (i >= 0 && SMALLER(tmp, buffer[i]))
+	{
+		buffer[currlen] = buffer[i];
+		currlen = i;
+		if (i > 0)
+		{
+			i = (i - 1) / 2;
+		}
+		else
+		{
+			break;
+		}
+	}
+	buffer[currlen] = tmp;
+}
+
+void fix_down_heap(unsigned char * buffer[], int currlen, int idx)
+{
+	int i = 2 * idx + 1;
+	unsigned char * tmp = buffer[idx];
+	while (i < currlen)
+	{
+		if (i < currlen - 1 && SMALLER(buffer[i + 1], buffer[i]))
+			++i;
+		if (SMALLER(buffer[i], tmp))
+		{
+			buffer[idx] = buffer[i];
+			idx = i;
+			i = 2 * idx + 1;
+		}
+		else
+		{
+			break;
+		}
+	}
+	buffer[idx] = tmp;
+}
+
+void insert_heap(unsigned char * buffer[], int bufferSize, int * currlen, unsigned char * value)
+{
+	buffer[(*currlen)++] = value;
+	fix_up_heap(buffer, *currlen - 1);
+}
+
+void pop_heap(unsigned char * buffer[], int * currlen)
+{
+	buffer[0] = buffer[--*currlen];
+	fix_down_heap(buffer, *currlen, 0);
+}
+
+
+void fix_up_heap_with_idx(unsigned char * buffer[], int idxbuf[], int currlen)
+{
+	int i = (currlen - 1) / 2;
+	unsigned char * tmp = buffer[currlen];
+	int tmpidx = idxbuf[currlen];
+	while (i >= 0 && SMALLER(tmp, buffer[i]))
+	{
+		buffer[currlen] = buffer[i];
+		idxbuf[currlen] = idxbuf[i];
+		currlen = i;
+		if (i > 0)
+		{
+			i = (i - 1) / 2;
+		}
+		else
+		{
+			break;
+		}
+	}
+	buffer[currlen] = tmp;
+	idxbuf[currlen] = tmpidx;
+}
+
+void fix_down_heap_with_idx(unsigned char * buffer[], int idxbuf[], int currlen, int idx)
+{
+	int i = 2 * idx + 1;
+	unsigned char * tmp = buffer[idx];
+	int tmpidx = idxbuf[idx];
+	while (i < currlen)
+	{
+		if (i < currlen - 1 && SMALLER(buffer[i + 1], buffer[i]))
+		{
+			++i;
+		}
+
+		if (SMALLER(buffer[i], tmp))
+		{
+			buffer[idx] = buffer[i];
+			idxbuf[idx] = idxbuf[i];
+			idx = i;
+			i = 2 * idx + 1;
+		}
+		else
+		{
+			break;
+		}
+	}
+	buffer[idx] = tmp;
+	idxbuf[idx] = tmpidx;
+}
+
+void insert_heap_with_idx(unsigned char * buffer[], int idxbuf[], int bufferSize, int * currlen, unsigned char * value, int idx)
+{
+	buffer[*currlen] = value;
+	idxbuf[*currlen] = idx;
+	(*currlen)++;
+	fix_up_heap_with_idx(buffer, idxbuf, *currlen - 1);
+}
+
+void pop_heap_with_idx(unsigned char * buffer[], int idxbuf[], int * currlen)
+{
+	--(*currlen);
+	buffer[0] = buffer[*currlen];
+	idxbuf[0] = idxbuf[*currlen];
+	fix_down_heap_with_idx(buffer, idxbuf, *currlen, 0);
+}
+
+
+int merge_sort_files(char *pathout, char *pathin[], int numInputs, unsigned char *pext, int records)
+{
+
+	int numinfiles = 0;
+	int ret = records, tmp, i, j;
+	char *ptmp;
+
+#ifdef TIME_STAT
+	struct timeval tvs, tve;
+	gettimeofday(&tvs, NULL);
+	unsigned long cycst, cycles_total = cycles();
+	unsigned long cycles_read_total = 0, cycles_write_total = 0;
+	char logbuf[1024];
+#endif
+
+	FILE *fpout;
+
+	if ((fpout=fopen(pathout, "wb")) == NULL)
+	{
+		return -1;
+	}
+
+	struct merge_info pminfo;
+	struct merge_info *pm = &pminfo;
+	memset(pm, 0, sizeof(struct merge_info));
+
+	if(io_setup(numInputs, &pm->ctx) != 0)
+	{
+		printf("io_setup failed!\n");
+		return 0;
+	}
+
+	pm->n = numInputs;
+	pm->fds = (int *)malloc(sizeof(int) * numInputs);
+	pm->offs = (long *)malloc(sizeof(long) * numInputs);
+	memset(pm->offs, 0, sizeof(long) * numInputs);
+	pm->lens = (long *)malloc(sizeof(long) * numInputs);
+	pm->buffers = (unsigned char **)malloc(sizeof(unsigned char *) * numInputs);
+	pm->states = (int *)malloc(sizeof(int) * numInputs);
+	memset(pm->states, 0, sizeof(int) * numInputs);
+	pm->alliocbs = (struct iocb *)malloc(sizeof(struct iocb) * numInputs);
+	memset(pm->alliocbs, 0 , sizeof(struct iocb) * numInputs);
+	pm->allpcbs = (struct iocb **)malloc(sizeof(struct iocb *) * numInputs);
+	pm->events = (struct io_event *)malloc(sizeof(struct io_event) * numInputs);
+
+	int *recs = (int *)malloc(sizeof(int) * (numInputs));
+	unsigned char *dbuf = (unsigned char *)memalign(4096, SORT_BUF_SIZE * numInputs * 2);
+	int *pbufoffs = (int *)malloc(sizeof(int) * (numInputs));
+	memset(pbufoffs, 0, sizeof(int) * (numInputs));
+	unsigned char ** pbufbases = (unsigned char **)malloc(sizeof(unsigned char *) * (numInputs));
+	//memset(pbufbases, 0, sizeof(unsigned char *) * (numInputs));
+
+	// if (!(pm->fds && pm->offs && pm->lens && pm->buffers &&
+	    // pm->states && pm->alliocbs && pm->allpcbs && pm->events &&
+		// recs && dbuf && pbufoffs && pbufbases))
+	// {
+		// sprintf(logbuf, "Memory alloc error: dbuf=%p \n", dbuf);
+		// fwrite(logbuf, strlen(logbuf), 1, fpout); fflush(fpout);
+	// }
+
+	for (i = 0; i < numInputs; i++)
+	{
+		pbufbases[i] = dbuf + i * SORT_BUF_SIZE * 2;
+		pm->buffers[i] = pbufbases[i];
+	}
+
+	for (i = 0; i < numInputs; i++)
+	{
+		pm->fds[numinfiles] = open(pathin[i], O_RDONLY | O_DIRECT);
+		if (pm->fds[numinfiles] < 0)
+		{
+			ret = -1000 - (numinfiles + 1);
+			goto F_err_open;
+		}
+		pm->lens[numinfiles] = lseek(pm->fds[numinfiles], 0, SEEK_END);
+		recs[numinfiles] = pm->lens[numinfiles] / REC_SIZE;
+		ret += recs[numinfiles];
+		numinfiles++;
+	}
+
+	FILL_DATA(pm, pm->n + 10, 0);
+	FILL_DATA(pm, -1, 1);
+
+	int capSize = (numInputs + 2);
+	int inheap = 0;
+	int id;
+	unsigned char **pkeys = (unsigned char **)malloc(sizeof(unsigned char*) * capSize);
+
+	int _items = numInputs; // + (records ? 1 : 0)
+	for (i = 0; i < _items; i++)
+	{
+		if (recs[i] > 0)
+		{
+			insert_heap(pkeys, capSize, &inheap, pbufbases[i]);
+			recs[i]--;
+		}
+	}
+
+	while (1)
+	{
+		if (records > 0)
+		{
+			if (inheap > 0 && !SMALLER(pkeys[0], pext))
+			{
+				FWRITE(pext, REC_SIZE, 1, fpout);
+				records--;
+				pext += REC_SIZE;
+				continue;
+			}
+		}
+
+		if (inheap > 0)
+		{
+			id = (pkeys[0] - dbuf) / (SORT_BUF_SIZE * 2);
+			FWRITE(pkeys[0], REC_SIZE, 1, fpout);
+			pop_heap(pkeys, &inheap);
+
+			if (recs[id] > 0)
+			{
+				pbufoffs[id] += REC_SIZE;
+				if (pbufoffs[id] == SORT_BUF_SIZE)
+				{
+					FILL_DATA(pm, id, 1);
+				}
+				else if (pbufoffs[id] == SORT_BUF_SIZE * 2)
+				{
+					FILL_DATA(pm, id, 0);
+					pbufoffs[id] = 0;
+				}
+				insert_heap(pkeys, capSize, &inheap, pbufbases[id] + pbufoffs[id]);
+				recs[id]--;
+			}
+		}
+		else
+		{
+			break;
+		}
+	}
+
+
+	if (records > 0)
+	{
+		FWRITE(pext, REC_SIZE * records, 1, fpout);
+	}
+
+	free(pkeys);
+	free(recs);
+	free(dbuf);
+	free(pbufoffs);
+	free(pbufbases);
+
+#ifdef TIME_STAT
+	cycles_total = cycles() - cycles_total;
+	gettimeofday(&tve, NULL);
+	sprintf(logbuf, "\n%d %llu %llu %llu %0.2f %0.2f\n",
+					ret, getseconds(&tvs, &tve), cycles_total, cycles_read_total, cycles_write_total,
+					cycles_read_total * 1.0 / cycles_total * 100,
+					cycles_write_total * 1.0 / cycles_total * 100);
+	fwrite(logbuf, strlen(logbuf), 1, fpout);
+#endif
+
+F_err_open:;
+	for( i = 0; i < numinfiles; i++)
+	{
+		close(pm->fds[i]);
+	}
+	release_merge_info(pm);
+	fclose(fpout);
+	return ret;
+}
+
+#define BUF_SIZE_BYTES (100 * 4096)
+
+int fill_data_BIO(struct merge_info *pm, int waitidx, int bufidx)
+{
+	int i, end, shdbufidx = bufidx, ret = 0;
+	int toproc = 0;
+	struct iocb * p;
+	long tmp, left, toread;
+	int sig = waitidx >=0 && waitidx < pm->n;
+	//unsigned long cycst = cycles();
+
+	if (sig)
+	{
+		i = waitidx;
+		end = waitidx + 1;
+	}
+	else
+	{
+		i = 0;
+		end = pm->n;
+	}
+
+	for(; i < end; i++)
+	{
+		read(pm->fds[i], pm->buffers[i], BUF_SIZE_BYTES);
+	}
+	//cycles_read_total += cycles() - cycst;
+	return 0;
+}
+
+int merge_sort_files_BIO(char *pathout, char *pathin[], int numInputs, unsigned char *pext, int records)
+{
+	int numinfiles = 0;
+	int ret = records, tmp, i, j;
+	char *ptmp;
+
+#ifdef TIME_STAT
+	struct timeval tvs, tve;
+	gettimeofday(&tvs, NULL);
+	unsigned long cycst, cycles_total = cycles();
+	unsigned long cycles_read_total = 0, cycles_write_total = 0;
+	char logbuf[1024];
+#endif
+
+	FILE *fpout;
+
+	if ((fpout=fopen(pathout, "wb")) == NULL)
+	{
+		return -1;
+	}
+
+	struct merge_info pminfo;
+	struct merge_info *pm = &pminfo;
+	memset(pm, 0, sizeof(struct merge_info));
+
+	pm->n = numInputs;
+	pm->fds = (int *)malloc(sizeof(int) * numInputs);
+	pm->buffers = (unsigned char **)malloc(sizeof(unsigned char *) * numInputs);
+
+	int *recs = (int *)malloc(sizeof(int) * (numInputs));
+	//unsigned char *dbuf = (unsigned char *)memalign(4096, SORT_BUF_SIZE * numInputs * 2);
+	unsigned char *dbuf = (unsigned char*)memalign(4096, BUF_SIZE_BYTES * numInputs);
+	int *pbufoffs = (int *)malloc(sizeof(int) * (numInputs));
+	memset(pbufoffs, 0, sizeof(int) * (numInputs));
+	unsigned char ** pbufbases = (unsigned char **)malloc(sizeof(unsigned char *) * (numInputs));
+	//memset(pbufbases, 0, sizeof(unsigned char *) * (numInputs));
+
+	for (i = 0; i < numInputs; i++)
+	{
+		pbufbases[i] = dbuf + i * BUF_SIZE_BYTES; // i * SORT_BUF_SIZE * 2;
+		pm->buffers[i] = pbufbases[i];
+	}
+
+	for (i = 0; i < numInputs; i++)
+	{
+		pm->fds[numinfiles] = open(pathin[i], O_RDONLY); // | O_DIRECT);
+		if (pm->fds[numinfiles] < 0)
+		{
+			ret = -1000 - (numinfiles + 1);
+			goto F_err_open;
+		}
+		recs[numinfiles] = lseek(pm->fds[numinfiles], 0, SEEK_END) / REC_SIZE;
+		ret += recs[numinfiles];
+		lseek(pm->fds[numinfiles], 0, SEEK_SET);
+		numinfiles++;
+	}
+
+	FILL_DATA_BIO(pm, pm->n + 10, 0);
+
+
+	int capSize = (numInputs + 2);
+	int inheap = 0;
+	int id;
+	unsigned char **pkeys = (unsigned char **)malloc(sizeof(unsigned char*) * capSize);
+
+	int _items = numInputs; // + (records ? 1 : 0)
+	for (i = 0; i < _items; i++)
+	{
+		if (recs[i] > 0)
+		{
+			insert_heap(pkeys, capSize, &inheap, pbufbases[i]);
+			recs[i]--;
+		}
+	}
+
+	while (1)
+	{
+		if (records > 0)
+		{
+			if (inheap > 0 && !SMALLER(pkeys[0], pext))
+			{
+				FWRITE(pext, REC_SIZE, 1, fpout);
+				records--;
+				pext += REC_SIZE;
+				continue;
+			}
+		}
+
+		if (inheap > 0)
+		{
+			id = (pkeys[0] - dbuf) / BUF_SIZE_BYTES;
+			FWRITE(pkeys[0], REC_SIZE, 1, fpout);
+			pop_heap(pkeys, &inheap);
+
+			if (recs[id] > 0)
+			{
+				pbufoffs[id] += REC_SIZE;
+				if (pbufoffs[id] == BUF_SIZE_BYTES)
+				{
+					FILL_DATA_BIO(pm, id, 0);
+					pbufoffs[id] = 0;
+				}
+				insert_heap(pkeys, capSize, &inheap, pbufbases[id] + pbufoffs[id]);
+				recs[id]--;
+			}
+		}
+		else
+		{
+			break;
+		}
+	}
+
+
+	if (records > 0)
+	{
+		FWRITE(pext, REC_SIZE * records, 1, fpout);
+	}
+
+#ifdef TIME_STAT
+	cycles_total = cycles() - cycles_total;
+	gettimeofday(&tve, NULL);
+	sprintf(logbuf, "\n%d %f %llu %llu %llu %0.2f %0.2f\n",
+					ret, getseconds(&tvs, &tve), cycles_total, cycles_read_total, cycles_write_total,
+					cycles_read_total * 1.0 / cycles_total * 100,
+					cycles_write_total * 1.0 / cycles_total * 100);
+	fwrite(logbuf, strlen(logbuf), 1, fpout);
+#endif
+
+	free(pkeys);
+	free(recs);
+	free(dbuf);
+	free(pbufoffs);
+	free(pbufbases);
+
+F_err_open:;
+	for( i = 0; i < numinfiles; i++)
+	{
+		close(pm->fds[i]);
+	}
+	//release_merge_info(pm);
+	free(pm->buffers);
+	free(pm->fds);
+	fclose(fpout);
+	return ret;
+}
+
+int merge_sort_mem(char *pathout, unsigned char **pb, int *recs, int nitems)
+{
+	int ret, i;
+	FILE *fpout;
+
+#ifdef TIME_STAT
+	struct timeval tvs, tve;
+	gettimeofday(&tvs, NULL);
+	unsigned long cycst, cycles_total = cycles();
+	unsigned long cycles_read_total = 0, cycles_write_total = 0;
+	char logbuf[1024];
+#endif
+
+	if ((fpout=fopen(pathout, "wb")) == NULL)
+	{
+		return -100001;
+	}
+
+	int inheap = 0;
+	int capSize = (nitems + 2);
+	unsigned char *ptmp;
+	int id;
+	unsigned char **heap = (unsigned char **)malloc(sizeof(unsigned char *) * capSize);
+	int *idxbuf = (int *)malloc(sizeof(int) * capSize);
+	if (heap == NULL)
+	{
+		ret = -100002;
+		goto F_close;
+	}
+
+	for (i = 0; i < nitems; i++)
+	{
+		if (recs[i] > 0)
+		{
+			insert_heap_with_idx(heap, idxbuf, capSize, &inheap, pb[i], i);
+			recs[i]--;
+		}
+	}
+
+	ret = 0;
+	while(inheap > 1)
+	{
+		ret++;
+		ptmp = heap[0];
+		id = idxbuf[0];
+		FWRITE(ptmp, REC_SIZE, 1, fpout);
+		pop_heap_with_idx(heap, idxbuf, &inheap);
+
+		if(recs[id] > 0)
+		{
+			insert_heap_with_idx(heap, idxbuf, capSize, &inheap, ptmp + REC_SIZE, id);
+			recs[id]--;
+		}
+	}
+
+	if (inheap == 1)
+	{
+		FWRITE(heap[0], REC_SIZE * (recs[idxbuf[0]] + 1), 1, fpout);
+		ret += recs[idxbuf[0]] + 1;
+	}
+
+	free(idxbuf);
+	free(heap);
+
+#ifdef TIME_STAT
+	cycles_total = cycles() - cycles_total;
+	gettimeofday(&tve, NULL);
+
+	*((unsigned int *)(logbuf + 0)) = 0xFFFFFFFF;
+	*((unsigned int *)(logbuf + 4)) = 0xFFFFFFFF;
+	*((unsigned int *)(logbuf + 8)) = 0xFFFFFFFF;
+	sprintf(&logbuf[12], "\n%d %f %llu %llu %llu %0.2f %0.2f\n",
+					ret, getseconds(&tvs, &tve), cycles_total, cycles_read_total, cycles_write_total,
+					cycles_read_total * 1.0 / cycles_total * 100,
+					cycles_write_total * 1.0 / cycles_total * 100);
+	//fwrite(logbuf, (strlen(logbuf) + (REC_SIZE - 1)) / REC_SIZE * REC_SIZE, 1, fpout);
+	fwrite(logbuf, REC_SIZE, 1, fpout);
+#endif
+
+F_close:
+	fclose(fpout);
+	return ret;
+}
+
+
+
+JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_mege_1files
+  (JNIEnv * env, jclass obj, jstring outpath, jobjectArray inpaths, jlong addr, jint items, jint bufsize)
+{
+	int i;
+	long ret = 0;
+	char *pout;
+	int numin = (*env)->GetArrayLength(env, inpaths);
+	jstring *pinjs = (jstring *)malloc(sizeof(jstring)* numin);
+	char **pins = (char**)malloc(sizeof(char *) * numin);
+
+	for (i=0; i<numin; i++) {
+		pinjs[i] = (jstring) ((*env)->GetObjectArrayElement(env, inpaths, i));
+		pins[i] = (*env)->GetStringUTFChars(env, pinjs[i], 0);
+		// Don't forget to call `ReleaseStringUTFChars` when you're done.
+    }
+	pout = (*env)->GetStringUTFChars(env, outpath, NULL);
+
+	ret =  merge_sort_files_BIO(pout, pins, numin, (unsigned char*)addr, items);
+
+	(*env)->ReleaseStringUTFChars(env, outpath, pout);
+	for (i = 0; i < numin; i++) {
+		(*env)->ReleaseStringUTFChars(env, pinjs[i], pins[i]);
+    }
+	free(pinjs);
+	free(pins);
+	return ret;
+}
+
+
+JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_merge_1sort
+  (JNIEnv *env, jclass obj, jstring outpath, jlongArray jaddrs, jlongArray jrecords, jlong resv)
+{
+	long ret = 0;
+	char *pout = (*env)->GetStringUTFChars(env, outpath, NULL);
+	jsize nblocks = (*env)->GetArrayLength(env, jaddrs);
+	jlong *blocks = (*env)->GetLongArrayElements(env, jaddrs, 0);
+	jsize narryrecs = (*env)->GetArrayLength(env, jrecords);
+	jint *nrecs = (*env)->GetIntArrayElements(env, jrecords, 0);
+
+	if(nblocks == narryrecs)
+	{
+		ret = merge_sort_mem(pout, (unsigned char **)blocks, (int *)nrecs, nblocks);
+	}
+	else
+	{
+		ret = -1010;
+	}
+
+	(*env)->ReleaseIntArrayElements(env, jrecords, nrecs, 0);
+	(*env)->ReleaseLongArrayElements(env, jaddrs, blocks, 0);
+	(*env)->ReleaseStringUTFChars(env, outpath, pout);
+	return ret;
+}
+
 //==========================================================
 
 #define SOCKETPAIR_ARRAY_LEN 2
@@ -1125,7 +1946,7 @@ JNIEnv *env, jclass clazz, jstring path)
     (*env)->Throw(env, jthr);
     return -1;
   }
-  if (((jthr = setAttribute0(env, fd, SEND_TIMEOUT, DEFAULT_SEND_TIMEOUT))) || 
+  if (((jthr = setAttribute0(env, fd, SEND_TIMEOUT, DEFAULT_SEND_TIMEOUT))) ||
       ((jthr = setAttribute0(env, fd, RECEIVE_TIMEOUT, DEFAULT_RECEIVE_TIMEOUT)))) {
     RETRY_ON_EINTR(ret, close(fd));
     (*env)->Throw(env, jthr);
@@ -1382,7 +2203,7 @@ jint offset, jint length)
           "The maximum is %d.", jfdsLen, MAX_PASSED_FDS);
     goto done;
   }
-  (*env)->GetByteArrayRegion(env, jbuf, offset, length, flexBuf.curBuf); 
+  (*env)->GetByteArrayRegion(env, jbuf, offset, length, flexBuf.curBuf);
   jthr = (*env)->ExceptionOccurred(env);
   if (jthr) {
     (*env)->ExceptionClear(env);
@@ -1574,7 +2395,7 @@ JNIEnv *env, jclass clazz, jint fd, jarray b, jint offset, jint length)
       ret = -1;
       goto done;
     }
-    jthr = newSocketException(env, ret, "read(2) error: %s", 
+    jthr = newSocketException(env, ret, "read(2) error: %s",
                               terror(ret));
     goto done;
   }
@@ -1589,7 +2410,7 @@ JNIEnv *env, jclass clazz, jint fd, jarray b, jint offset, jint length)
   }
 done:
   flexBufFree(&flexBuf);
-  if (jthr) { 
+  if (jthr) {
     (*env)->Throw(env, jthr);
   }
   return ret == 0 ? -1 : ret; // Java wants -1 on EOF
@@ -1640,7 +2461,7 @@ JNIEnv *env, jclass clazz, jint fd, jarray b, jint offset, jint length)
 
 done:
   flexBufFree(&flexBuf);
-  if (jthr) { 
+  if (jthr) {
     (*env)->Throw(env, jthr);
   }
 }
@@ -1662,7 +2483,7 @@ JNIEnv *env, jclass clazz, jint fd, jobject dst, jint position, jint remaining)
   if (res < 0) {
     res = errno;
     if (res != ECONNABORTED) {
-      jthr = newSocketException(env, res, "read(2) error: %s", 
+      jthr = newSocketException(env, res, "read(2) error: %s",
                                 terror(res));
       goto done;
     } else {

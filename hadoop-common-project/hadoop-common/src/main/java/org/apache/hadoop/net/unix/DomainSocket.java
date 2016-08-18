@@ -167,7 +167,7 @@ public class DomainSocket implements Closeable {
 
   private static native int bind0(String path) throws IOException;
 
-  public static native long create_file(String path, int bufSize, int numConcurrent);
+  public static native long create_file(String path, int bufSize, int numConcurrent, long estFileSize, long mode);
   public static native long write_file(long file, long addr, int datalen);
   public static native void close_file(long file);
 
@@ -180,6 +180,8 @@ public class DomainSocket implements Closeable {
   public static native long resv_func(long arg1, long arg2, long arg3, long arg4, long arg5, long arg6);
 
   public static native long mege_files(String outputfile, String[] inputfiles, long memaddr, int memrecords, int buffersize);
+
+  public static native long merge_sort(String outputfile, long[] memblocks, int[] numrecs, long unused);
 
   private void unreference(boolean checkClosed) throws ClosedChannelException {
     if (checkClosed) {
