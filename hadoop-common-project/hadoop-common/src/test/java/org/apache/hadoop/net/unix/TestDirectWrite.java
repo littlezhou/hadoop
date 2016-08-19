@@ -44,7 +44,7 @@ public class TestDirectWrite {
       inst.putByte(srcBuf + i, (byte) (65 + i % 26));
     }
     long dataAddr = srcBuf;
-    long f =  DomainSocket.create_file(path, 64 *1024, 1, 10L * 1024 * 1024 * 1024, 0);
+    long f =  DomainSocket.create_file(path, 64 *1024, 1);// 10L * 1024 * 1024 * 1024, 0);
     for (i = 0; i < 999999999; i++)
     {
       DomainSocket.write_file(f, dataAddr, dataSize);
@@ -110,7 +110,7 @@ public class TestDirectWrite {
 
 
 
-    f =  DomainSocket.create_file(path, bufsize, nConcurrent, 10L * 1024 * 1024 * 1024, 0);
+    f =  DomainSocket.create_file(path, bufsize, nConcurrent); // 10L * 1024 * 1024 * 1024, 0);
     if (f == 0)
     {
       System.out.print("create file error\n");
@@ -187,7 +187,7 @@ public class TestDirectWrite {
     int bufsize = 64 * 1024;
     int nConcurrent = 16;
 
-    long dataSize = 4096L * 1024 * 1024;
+    long dataSize = 96L * 1024 * 1024;
     long towrite, written;
     int recordSize = 1000;
 
@@ -210,7 +210,7 @@ public class TestDirectWrite {
     dataAddr = srcBuf;
 
 
-    f = DomainSocket.create_file(path, bufsize, nConcurrent, 10L * 1024 * 1024 * 1024, 0);
+    f = DomainSocket.create_file(path, bufsize, nConcurrent);//, 10L * 1024 * 1024 * 1024, 0);
     if (f == 0) {
       System.out.print("create file error\n");
     }
@@ -221,6 +221,8 @@ public class TestDirectWrite {
       written += lenWritten;
     }
     DomainSocket.close_file(f);
+
+    outfile.delete();
   }
 }
 

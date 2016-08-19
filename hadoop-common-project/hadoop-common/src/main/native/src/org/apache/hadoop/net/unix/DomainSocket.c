@@ -396,24 +396,46 @@ struct op_info {
 	struct iocb *	alliocbs;
 };
 
+#define DBG_OPEN
+
 // == =========================
 long open_file_internal(char *path, int flags, int bufsize, int nbuffers, long estSize)
 {
 	int fd;
-	int i;
+	int i, ret;
 	struct op_info * pinfo = NULL;
+	int reason = 0;
+
+#ifdef DBG_OPEN
+	char logbuf[1024];
+	logbuf[0] = '\0';
+	char logpath[64];
+	FILE *fplog;
+	sprintf(logpath, "/dev/shm/dbg-%p", path);
+	fplog = fopen(logpath, "wb");
+#endif
 
 	bufsize = bufsize <= 0 ? 100 * 1024 : bufsize;
 
 	if (path == NULL || nbuffers <= 0 || bufsize % BLOCK_SIZE != 0)
 	{
-		printf("Paramters error in open_file\n");
-		return 0;
+		//printf("Paramters error in open_file\n");
+#ifdef DBG_OPEN
+	sprintf(&logbuf[strlen(logbuf)], "nbuffers=%d bufsize=%d\n", nbuffers, bufsize);
+#endif
+		reason = -99998;
+		goto F_ret;
 	}
+
+#ifdef DBG_OPEN
+	sprintf(&logbuf[strlen(logbuf)], "path=%s\n", path);
+#endif
+
 	fd = open(path, flags, 0644);
 	if (fd < 0)
 	{
-		return 0;
+		reason = -99999;
+		goto F_ret;
 	}
 
 	if (flags & O_CREAT)
@@ -423,9 +445,15 @@ long open_file_internal(char *path, int flags, int bufsize, int nbuffers, long e
 
 	pinfo = (struct op_info *)malloc(sizeof(struct op_info));
 	memset(pinfo, 0, sizeof(struct op_info));
-	if(io_setup(nbuffers, &pinfo->ctx) != 0)
+
+	ret = io_setup(nbuffers, &pinfo->ctx);
+	if(ret != 0)
 	{
-		printf("io_setup failed!\n");
+		//printf("io_setup failed!\n");
+#ifdef DBG_OPEN
+	sprintf(&logbuf[strlen(logbuf)], "setup=%d\n", ret);
+#endif
+		reason = -10000;
 		goto F_close;
 	}
 	pinfo->fd = fd;
@@ -435,6 +463,7 @@ long open_file_internal(char *path, int flags, int bufsize, int nbuffers, long e
 	pinfo->buffers = (char **)malloc(sizeof(char*) * nbuffers);
 	if (pinfo->buffers == NULL)
 	{
+		reason = -10001;
 		goto F_close;
 	}
 	memset(pinfo->buffers, 0, sizeof(char*) * nbuffers);
@@ -445,6 +474,7 @@ long open_file_internal(char *path, int flags, int bufsize, int nbuffers, long e
 		//printf("Buf --> %p  \n", pinfo->buffers[i]);
 		if (pinfo->buffers[i] == NULL)
 		{
+			reason = -10002;
 			goto F_free_buffers;
 		}
 	}
@@ -452,18 +482,21 @@ long open_file_internal(char *path, int flags, int bufsize, int nbuffers, long e
 	pinfo->events = (struct io_event *)malloc(sizeof(struct io_event) * nbuffers);
 	if (pinfo->events == NULL)
 	{
+		reason = -10003;
 		goto F_free_buffers;
 	}
 
 	pinfo->allpcbs = (struct iocb **)malloc(sizeof(struct iocb *) * nbuffers);
 	if (pinfo->allpcbs == NULL)
 	{
+		reason = -10004;
 		goto F_free_io_event;
 	}
 
 	pinfo->alliocbs = (struct iocb *)malloc(sizeof(struct iocb) * nbuffers);
 	if (pinfo->alliocbs == NULL)
 	{
+		reason = -10005;
 		goto F_free_allpcbs;
 	}
 	memset(pinfo->alliocbs, 0, sizeof(struct iocb) * nbuffers);
@@ -471,6 +504,7 @@ long open_file_internal(char *path, int flags, int bufsize, int nbuffers, long e
 	pinfo->freeindexs = (int *)malloc(sizeof(int) * nbuffers);
 	if (pinfo->freeindexs == NULL)
 	{
+		reason = -10006;
 		goto F_free_alliocbs;
 	}
 	for (i = 0; i < nbuffers; i++)
@@ -478,6 +512,12 @@ long open_file_internal(char *path, int flags, int bufsize, int nbuffers, long e
 		pinfo->freeindexs[i] = i;
 	}
 	pinfo->bufwriting = pinfo->buffers[0];
+
+#ifdef DBG_OPEN
+	//fwrite(logbuf, strlen(logbuf), 1, fplog);
+	fclose(fplog);
+	unlink(logpath);
+#endif
 
 	return (long)pinfo;
 
@@ -505,6 +545,15 @@ F_close:
 	close(fd);
 	unlink(path);
 	free(pinfo);
+
+F_ret:
+
+#ifdef DBG_OPEN
+	sprintf(&logbuf[strlen(logbuf)], "reason=%d\n", reason);
+	fwrite(logbuf, strlen(logbuf), 1, fplog);
+	fclose(fplog);
+#endif
+
 	return 0;
 }
 
@@ -943,13 +992,15 @@ F_free:
 	return ret;
 }
 
-
+//JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_create_1file__Ljava_lang_String_2II
+//JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_create_1file__Ljava_lang_String_2IIJJ
+//JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_create_1file
 JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_create_1file
-  (JNIEnv * env, jclass obj, jstring filePath, jint bufSize, jint numConcurrent, jlong estSize, jlong mode)
+  (JNIEnv * env, jclass obj, jstring filePath, jint bufSize, jint numConcurrent) //, jlong estSize, jlong mode)
 {
 	char *path;
 	path = (*env)->GetStringUTFChars(env, filePath, NULL);
-	long ret = create_file(path, bufSize, numConcurrent, estSize);
+	long ret = create_file(path, bufSize, numConcurrent, 600 * 1024 * 1024); //estSize);
 	(*env)->ReleaseStringUTFChars(env, filePath, path);
 	return ret;
 }
@@ -1082,7 +1133,7 @@ inline unsigned long cycles() {
 
 #define F_IN_IO(X) (1 << (X))
 
-#define TIME_STAT 1
+//#define TIME_STAT 1
 
 #ifdef TIME_STAT
 
