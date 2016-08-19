@@ -209,8 +209,8 @@ public class TestDirectWrite {
     }
     dataAddr = srcBuf;
 
-
-    f = DomainSocket.create_file(path, bufsize, nConcurrent);//, 10L * 1024 * 1024 * 1024, 0);
+    f = DomainSocket.create_file_pa(path, bufsize, nConcurrent, 10L * 1024 * 1024 * 1024, 0);
+    //f = DomainSocket.create_file(path, bufsize, nConcurrent);//, 10L * 1024 * 1024 * 1024, 0);
     if (f == 0) {
       System.out.print("create file error\n");
     }

@@ -999,7 +999,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_create_1fil
 {
 	char *path;
 	path = (*env)->GetStringUTFChars(env, filePath, NULL);
-	long ret = create_file(path, bufSize, numConcurrent, estSizee);
+	long ret = create_file(path, bufSize, numConcurrent, estSize);
 	(*env)->ReleaseStringUTFChars(env, filePath, path);
 	return ret;
 }
