@@ -410,9 +410,9 @@ long open_file_internal(char *path, int flags, int bufsize, int nbuffers, long e
 	char logbuf[1024];
 	logbuf[0] = '\0';
 	char logpath[64];
-	FILE *fplog;
+	FILE *fplog = NULL;
 	sprintf(logpath, "/dev/shm/dbg-%p", path);
-	fplog = fopen(logpath, "wb");
+	sprintf(&logbuf[strlen(logbuf)], "path=%s\n", path != NULL ? path : "(NULL)");
 #endif
 
 	bufsize = bufsize <= 0 ? 100 * 1024 : bufsize;
@@ -426,10 +426,6 @@ long open_file_internal(char *path, int flags, int bufsize, int nbuffers, long e
 		reason = -99998;
 		goto F_ret;
 	}
-
-#ifdef DBG_OPEN
-	sprintf(&logbuf[strlen(logbuf)], "path=%s\n", path);
-#endif
 
 	fd = open(path, flags, 0644);
 	if (fd < 0)
@@ -513,8 +509,10 @@ long open_file_internal(char *path, int flags, int bufsize, int nbuffers, long e
 	}
 	pinfo->bufwriting = pinfo->buffers[0];
 
-#ifdef DBG_OPEN
-	//fwrite(logbuf, strlen(logbuf), 1, fplog);
+//#ifdef DBG_OPEN
+#if 0
+	fplog = fopen(logpath, "wb");
+	fwrite(logbuf, strlen(logbuf), 1, fplog);
 	fclose(fplog);
 	unlink(logpath);
 #endif
@@ -549,9 +547,13 @@ F_close:
 F_ret:
 
 #ifdef DBG_OPEN
-	sprintf(&logbuf[strlen(logbuf)], "reason=%d\n", reason);
-	fwrite(logbuf, strlen(logbuf), 1, fplog);
-	fclose(fplog);
+	fplog = fopen(logpath, "wb");
+	if (fplog != NULL)
+	{
+		sprintf(&logbuf[strlen(logbuf)], "reason=%d\n", reason);
+		fwrite(logbuf, strlen(logbuf), 1, fplog);
+		fclose(fplog);
+	}
 #endif
 
 	return 0;
@@ -1158,10 +1160,18 @@ inline unsigned long cycles() {
 	cycles_write_total += cycles() - cycst; \
 }
 
+#define FWRITE_DIO(A,B,C) \
+{ \
+	cycst = cycles(); \
+	write_file((A), (B), (C)); \
+	cycles_write_total += cycles() - cycst; \
+}
+
 #else
 #define FILL_DATA_BIO(X, Y, Z) 	fill_data_BIO((X), (Y), (Z));
 #define FILL_DATA(X, Y, Z) 		fill_data((X), (Y), (Z));
 #define FWRITE(A,B,C,D) 		fwrite((A), (B), (C), (D))
+#define FWRITE_DIO(A,B,C) 		write_file((A), (B), (C))
 #endif
 
 
@@ -1868,6 +1878,91 @@ F_close:
 }
 
 
+int merge_sort_mem_dio(char *pathout, unsigned char **pb, int *recs, int nitems, long outfile)
+//		int bufSize, int numConcurrent, long estSize)
+{
+	int ret, i;
+	long fpout = outfile;
+
+#ifdef TIME_STAT
+	struct timeval tvs, tve;
+	gettimeofday(&tvs, NULL);
+	unsigned long cycst, cycles_total = cycles();
+	unsigned long cycles_read_total = 0, cycles_write_total = 0;
+	char logbuf[1024];
+#endif
+
+	// if ((fpout=create_file(pathout, bufSize, numConcurrent, estSize) == 0)
+	// {
+		// return -100001;
+	// }
+
+	int inheap = 0;
+	int capSize = (nitems + 2);
+	unsigned char *ptmp;
+	int id;
+	unsigned char **heap = (unsigned char **)malloc(sizeof(unsigned char *) * capSize);
+	int *idxbuf = (int *)malloc(sizeof(int) * capSize);
+	if (heap == NULL)
+	{
+		ret = -100002;
+		goto F_close;
+	}
+
+	for (i = 0; i < nitems; i++)
+	{
+		if (recs[i] > 0)
+		{
+			insert_heap_with_idx(heap, idxbuf, capSize, &inheap, pb[i], i);
+			recs[i]--;
+		}
+	}
+
+	ret = 0;
+	while(inheap > 1)
+	{
+		ret++;
+		ptmp = heap[0];
+		id = idxbuf[0];
+		FWRITE_DIO(fpout, ptmp, REC_SIZE);
+		pop_heap_with_idx(heap, idxbuf, &inheap);
+
+		if(recs[id] > 0)
+		{
+			insert_heap_with_idx(heap, idxbuf, capSize, &inheap, ptmp + REC_SIZE, id);
+			recs[id]--;
+		}
+	}
+
+	if (inheap == 1)
+	{
+		FWRITE_DIO(fpout, heap[0], REC_SIZE * (recs[idxbuf[0]] + 1));
+		ret += recs[idxbuf[0]] + 1;
+	}
+
+	free(idxbuf);
+	free(heap);
+
+#ifdef TIME_STAT
+	cycles_total = cycles() - cycles_total;
+	gettimeofday(&tve, NULL);
+
+	*((unsigned int *)(logbuf + 0)) = 0xFFFFFFFF;
+	*((unsigned int *)(logbuf + 4)) = 0xFFFFFFFF;
+	*((unsigned int *)(logbuf + 8)) = 0xFFFFFFFF;
+	sprintf(&logbuf[12], "\n%d %f %llu %llu %llu %0.2f %0.2f\n",
+					ret, getseconds(&tvs, &tve), cycles_total, cycles_read_total, cycles_write_total,
+					cycles_read_total * 1.0 / cycles_total * 100,
+					cycles_write_total * 1.0 / cycles_total * 100);
+	//fwrite(logbuf, (strlen(logbuf) + (REC_SIZE - 1)) / REC_SIZE * REC_SIZE, 1, fpout);
+	write_file(fpout, logbuf, REC_SIZE);
+#endif
+
+F_close:
+	//close_file(fpout);
+	return ret;
+}
+
 
 JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_mege_1files
   (JNIEnv * env, jclass obj, jstring outpath, jobjectArray inpaths, jlong addr, jint items, jint bufsize)
@@ -1899,7 +1994,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_mege_1files
 
 
 JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_merge_1sort
-  (JNIEnv *env, jclass obj, jstring outpath, jlongArray jaddrs, jlongArray jrecords, jlong resv)
+  (JNIEnv *env, jclass obj, jstring outpath, jlongArray jaddrs, jlongArray jrecords, jlong outfile)
 {
 	long ret = 0;
 	char *pout = (*env)->GetStringUTFChars(env, outpath, NULL);
@@ -1910,7 +2005,14 @@ JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_merge_1sort
 
 	if(nblocks == narryrecs)
 	{
-		ret = merge_sort_mem(pout, (unsigned char **)blocks, (int *)nrecs, nblocks);
+		if (outfile == 0)
+		{
+			ret = merge_sort_mem(pout, (unsigned char **)blocks, (int *)nrecs, nblocks);
+		}
+		else
+		{
+			ret = merge_sort_mem_dio(pout, (unsigned char **)blocks, (int *)nrecs, nblocks, outfile);
+		}
 	}
 	else
 	{
