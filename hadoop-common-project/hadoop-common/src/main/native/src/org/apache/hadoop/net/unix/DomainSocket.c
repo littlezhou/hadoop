@@ -994,6 +994,16 @@ F_free:
 	return ret;
 }
 
+JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_create_1file_1pa
+  (JNIEnv * env, jclass obj, jstring filePath, jint bufSize, jint numConcurrent, jlong estSize, jlong mode)
+{
+	char *path;
+	path = (*env)->GetStringUTFChars(env, filePath, NULL);
+	long ret = create_file(path, bufSize, numConcurrent, estSizee);
+	(*env)->ReleaseStringUTFChars(env, filePath, path);
+	return ret;
+}
+
 //JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_create_1file__Ljava_lang_String_2II
 //JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_create_1file__Ljava_lang_String_2IIJJ
 //JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_create_1file
