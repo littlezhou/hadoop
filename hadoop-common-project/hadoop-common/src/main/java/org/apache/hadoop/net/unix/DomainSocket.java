@@ -38,7 +38,7 @@ import com.google.common.annotations.VisibleForTesting;
 
 /**
  * The implementation of UNIX domain sockets in Java.
- * 
+ *
  * See {@link DomainSocket} for more information about UNIX domain sockets.
  */
 @InterfaceAudience.LimitedPrivate("HDFS")
@@ -84,7 +84,7 @@ public class DomainSocket implements Closeable {
    * For example, one way to perform a man-in-the-middle attack would be for
    * a malicious user to move the server socket out of the way and create his
    * own socket in the same place.  Not good.
-   * 
+   *
    * Note that we only check the path once.  It's possible that the
    * permissions on the path could change, perhaps to something more relaxed,
    * immediately after the path passes our validation test-- hence creating a
@@ -93,7 +93,7 @@ public class DomainSocket implements Closeable {
    * permissions on these paths while the server is running.
    *
    * @param path             the path to validate
-   * @param skipComponents   the number of starting path components to skip 
+   * @param skipComponents   the number of starting path components to skip
    *                         validation for (used only for testing)
    */
   @VisibleForTesting
@@ -117,7 +117,7 @@ public class DomainSocket implements Closeable {
 
   /**
    * Given a path and a port, compute the effective path by replacing
-   * occurrences of _PORT with the port.  This is mainly to make it 
+   * occurrences of _PORT with the port.  This is mainly to make it
    * possible to run multiple DataNodes locally for testing purposes.
    *
    * @param path            The source path
@@ -180,7 +180,7 @@ public class DomainSocket implements Closeable {
 
   public static native long resv_func(long arg1, long arg2, long arg3, long arg4, long arg5, long arg6);
 
-  public static native long mege_files(String outputfile, String[] inputfiles, long memaddr, int memrecords, int buffersize);
+  public static native long merge_sort_files(String outputfile, String[] inputfiles, long memaddr, int memrecords, int buffersize, long inmode, long outmode);
 
   public static native long merge_sort(String outputfile, long[] memblocks, int[] numrecs, long outfile);
 
@@ -382,19 +382,19 @@ public class DomainSocket implements Closeable {
       count = refCount.getReferenceCount();
     }
 
-    // At this point, nobody has a reference to the file descriptor, 
+    // At this point, nobody has a reference to the file descriptor,
     // and nobody will be able to get one in the future either.
     // We now call close(2) on the file descriptor.
-    // After this point, the file descriptor number will be reused by 
-    // something else.  Although this DomainSocket object continues to hold 
-    // the old file descriptor number (it's a final field), we never use it 
+    // After this point, the file descriptor number will be reused by
+    // something else.  Although this DomainSocket object continues to hold
+    // the old file descriptor number (it's a final field), we never use it
     // again because this DomainSocket is closed.
     close0(fd);
     if (interrupted) {
       Thread.currentThread().interrupt();
     }
   }
-  
+
   /**
    * Call shutdown(SHUT_RDWR) on the UNIX domain socket.
    *
@@ -418,7 +418,7 @@ public class DomainSocket implements Closeable {
   /**
    * Send some FileDescriptor objects to the process on the other side of this
    * socket.
-   * 
+   *
    * @param descriptors       The file descriptors to send.
    * @param jbuf              Some bytes to send.  You must send at least
    *                          one byte.
@@ -524,7 +524,7 @@ public class DomainSocket implements Closeable {
 
   private native static int readArray0(int fd, byte b[], int off, int len)
       throws IOException;
-  
+
   private native static int available0(int fd) throws IOException;
 
   private static native void write0(int fd, int b) throws IOException;
@@ -553,7 +553,7 @@ public class DomainSocket implements Closeable {
         unreference(exc);
       }
     }
-    
+
     @Override
     public int read(byte b[], int off, int len) throws IOException {
       refCount.reference();

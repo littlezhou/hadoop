@@ -171,7 +171,7 @@ public class TestDirectWrite {
     {
       inFiles[i] = dir + "xx" + i;
     }
-    long ret = DomainSocket.mege_files(outfile, inFiles, 0, 0, 100 * 1024);
+    long ret = DomainSocket.merge_sort_files(outfile, inFiles, 0, 0, 100 * 1024, 0 , 0);
     ret++;
   }
 

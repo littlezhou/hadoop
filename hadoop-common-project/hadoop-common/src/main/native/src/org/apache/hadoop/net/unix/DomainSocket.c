@@ -1455,8 +1455,7 @@ void pop_heap_with_idx(unsigned char * buffer[], int idxbuf[], int * currlen)
 	fix_down_heap_with_idx(buffer, idxbuf, *currlen, 0);
 }
 
-
-int merge_sort_files(char *pathout, char *pathin[], int numInputs, unsigned char *pext, int records)
+int merge_sort_files(char *pathout, char *pathin[], int numInputs, unsigned char *pext, int records, long outfd)
 {
 
 	int numinfiles = 0;
@@ -1471,11 +1470,14 @@ int merge_sort_files(char *pathout, char *pathin[], int numInputs, unsigned char
 	char logbuf[1024];
 #endif
 
-	FILE *fpout;
+	FILE *fpout = NULL;
 
-	if ((fpout=fopen(pathout, "wb")) == NULL)
+	if (outfd == 0)
 	{
-		return -1;
+		if ((fpout=fopen(pathout, "wb")) == NULL)
+		{
+			return -1;
+		}
 	}
 
 	struct merge_info pminfo;
@@ -1560,7 +1562,15 @@ int merge_sort_files(char *pathout, char *pathin[], int numInputs, unsigned char
 		{
 			if (inheap > 0 && !SMALLER(pkeys[0], pext))
 			{
-				FWRITE(pext, REC_SIZE, 1, fpout);
+				if (outfd == 0)
+				{
+					FWRITE(pext, REC_SIZE, 1, fpout);
+				}
+				else
+				{
+					FWRITE_DIO(outfd, pext, REC_SIZE);
+				}
+
 				records--;
 				pext += REC_SIZE;
 				continue;
@@ -1570,7 +1580,16 @@ int merge_sort_files(char *pathout, char *pathin[], int numInputs, unsigned char
 		if (inheap > 0)
 		{
 			id = (pkeys[0] - dbuf) / (SORT_BUF_SIZE * 2);
-			FWRITE(pkeys[0], REC_SIZE, 1, fpout);
+
+			if (outfd == 0)
+			{
+				FWRITE(pkeys[0], REC_SIZE, 1, fpout);
+			}
+			else
+			{
+				FWRITE_DIO(outfd, pkeys[0], REC_SIZE);
+			}
+
 			pop_heap(pkeys, &inheap);
 
 			if (recs[id] > 0)
@@ -1598,7 +1617,14 @@ int merge_sort_files(char *pathout, char *pathin[], int numInputs, unsigned char
 
 	if (records > 0)
 	{
-		FWRITE(pext, REC_SIZE * records, 1, fpout);
+		if (outfd == 0)
+		{
+			FWRITE(pext, REC_SIZE * records, 1, fpout);
+		}
+		else
+		{
+			FWRITE_DIO(outfd, pext, REC_SIZE * REC_SIZE);
+		}
 	}
 
 	free(pkeys);
@@ -1614,7 +1640,15 @@ int merge_sort_files(char *pathout, char *pathin[], int numInputs, unsigned char
 					ret, getseconds(&tvs, &tve), cycles_total, cycles_read_total, cycles_write_total,
 					cycles_read_total * 1.0 / cycles_total * 100,
 					cycles_write_total * 1.0 / cycles_total * 100);
-	fwrite(logbuf, strlen(logbuf), 1, fpout);
+	//fwrite(logbuf, strlen(logbuf), 1, fpout);
+	if (outfd == 0)
+	{
+		FWRITE(logbuf, strlen(logbuf), 1, fpout);
+	}
+	else
+	{
+		FWRITE_DIO(outfd, logbuf, strlen(logbuf));
+	}
 #endif
 
 F_err_open:;
@@ -1623,7 +1657,11 @@ F_err_open:;
 		close(pm->fds[i]);
 	}
 	release_merge_info(pm);
-	fclose(fpout);
+
+	if (outfd == 0)
+	{
+		fclose(fpout);
+	}
 	return ret;
 }
 
@@ -1657,7 +1695,7 @@ int fill_data_BIO(struct merge_info *pm, int waitidx, int bufidx)
 	return 0;
 }
 
-int merge_sort_files_BIO(char *pathout, char *pathin[], int numInputs, unsigned char *pext, int records)
+int merge_sort_files_BIO(char *pathout, char *pathin[], int numInputs, unsigned char *pext, int records, long outfd)
 {
 	int numinfiles = 0;
 	int ret = records, tmp, i, j;
@@ -1671,11 +1709,14 @@ int merge_sort_files_BIO(char *pathout, char *pathin[], int numInputs, unsigned 
 	char logbuf[1024];
 #endif
 
-	FILE *fpout;
+	FILE *fpout = NULL;
 
-	if ((fpout=fopen(pathout, "wb")) == NULL)
+	if (outfd == 0)
 	{
-		return -1;
+		if ((fpout=fopen(pathout, "wb")) == NULL)
+		{
+			return -1;
+		}
 	}
 
 	struct merge_info pminfo;
@@ -1738,7 +1779,14 @@ int merge_sort_files_BIO(char *pathout, char *pathin[], int numInputs, unsigned 
 		{
 			if (inheap > 0 && !SMALLER(pkeys[0], pext))
 			{
-				FWRITE(pext, REC_SIZE, 1, fpout);
+				if (outfd == 0)
+				{
+					FWRITE(pext, REC_SIZE, 1, fpout);
+				}
+				else
+				{
+					FWRITE_DIO(outfd, pext, REC_SIZE);
+				}
 				records--;
 				pext += REC_SIZE;
 				continue;
@@ -1748,7 +1796,16 @@ int merge_sort_files_BIO(char *pathout, char *pathin[], int numInputs, unsigned 
 		if (inheap > 0)
 		{
 			id = (pkeys[0] - dbuf) / BUF_SIZE_BYTES;
-			FWRITE(pkeys[0], REC_SIZE, 1, fpout);
+
+			if (outfd == 0)
+			{
+				FWRITE(pkeys[0], REC_SIZE, 1, fpout);
+			}
+			else
+			{
+				FWRITE_DIO(outfd, pkeys[0], REC_SIZE);
+			}
+
 			pop_heap(pkeys, &inheap);
 
 			if (recs[id] > 0)
@@ -1772,7 +1829,14 @@ int merge_sort_files_BIO(char *pathout, char *pathin[], int numInputs, unsigned 
 
 	if (records > 0)
 	{
-		FWRITE(pext, REC_SIZE * records, 1, fpout);
+		if (outfd == 0)
+		{
+			FWRITE(pext, REC_SIZE * records, 1, fpout);
+		}
+		else
+		{
+			FWRITE_DIO(outfd, pext, REC_SIZE * records);
+		}
 	}
 
 #ifdef TIME_STAT
@@ -1782,7 +1846,15 @@ int merge_sort_files_BIO(char *pathout, char *pathin[], int numInputs, unsigned 
 					ret, getseconds(&tvs, &tve), cycles_total, cycles_read_total, cycles_write_total,
 					cycles_read_total * 1.0 / cycles_total * 100,
 					cycles_write_total * 1.0 / cycles_total * 100);
-	fwrite(logbuf, strlen(logbuf), 1, fpout);
+	//fwrite(logbuf, strlen(logbuf), 1, fpout);
+	if (outfd == 0)
+	{
+		FWRITE(logbuf, strlen(logbuf), 1, fpout);
+	}
+	else
+	{
+		FWRITE_DIO(outfd, logbuf, strlen(logbuf));
+	}
 #endif
 
 	free(pkeys);
@@ -1799,7 +1871,10 @@ F_err_open:;
 	//release_merge_info(pm);
 	free(pm->buffers);
 	free(pm->fds);
-	fclose(fpout);
+	if (outfd == 0)
+	{
+		fclose(fpout);
+	}
 	return ret;
 }
 
@@ -1974,8 +2049,10 @@ F_close:
 }
 
 
-JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_mege_1files
-  (JNIEnv * env, jclass obj, jstring outpath, jobjectArray inpaths, jlong addr, jint items, jint bufsize)
+//JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_mege_1files
+JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_merge_1sort_1files
+  (JNIEnv * env, jclass obj, jstring outpath, jobjectArray inpaths, jlong addr, jint items, jint bufsize,
+   jlong inmode, jlong outfd)
 {
 	int i;
 	long ret = 0;
@@ -1991,7 +2068,14 @@ JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_mege_1files
     }
 	pout = (*env)->GetStringUTFChars(env, outpath, NULL);
 
-	ret =  merge_sort_files_BIO(pout, pins, numin, (unsigned char*)addr, items);
+	if (inmode == 0)
+	{
+		ret = merge_sort_files_BIO(pout, pins, numin, (unsigned char*)addr, items, outfd);
+	}
+	else
+	{
+		ret = merge_sort_files(pout, pins, numin, (unsigned char*)addr, items, outfd);
+	}
 
 	(*env)->ReleaseStringUTFChars(env, outpath, pout);
 	for (i = 0; i < numin; i++) {
