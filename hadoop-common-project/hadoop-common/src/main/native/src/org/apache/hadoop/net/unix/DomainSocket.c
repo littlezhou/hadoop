@@ -1623,7 +1623,7 @@ int merge_sort_files(char *pathout, char *pathin[], int numInputs, unsigned char
 		}
 		else
 		{
-			FWRITE_DIO(outfd, pext, REC_SIZE * REC_SIZE);
+			FWRITE_DIO(outfd, pext, REC_SIZE * records);
 		}
 	}
 
@@ -1878,7 +1878,66 @@ F_err_open:;
 	return ret;
 }
 
-int merge_sort_mem(char *pathout, unsigned char **pb, int *recs, int nitems)
+int merge_sort_mem(unsigned char *outbuf, unsigned char **pb, int *recs, int nitems)
+{
+	int ret, i;
+
+	if (outbuf == NULL)
+	{
+		return -100001;
+	}
+
+	int inheap = 0;
+	int capSize = (nitems + 2);
+	unsigned char *ptmp;
+	int id;
+	unsigned char **heap = (unsigned char **)malloc(sizeof(unsigned char *) * capSize);
+	int *idxbuf = (int *)malloc(sizeof(int) * capSize);
+	if (heap == NULL)
+	{
+		ret = -100002;
+		goto F_close;
+	}
+
+	for (i = 0; i < nitems; i++)
+	{
+		if (recs[i] > 0)
+		{
+			insert_heap_with_idx(heap, idxbuf, capSize, &inheap, pb[i], i);
+			recs[i]--;
+		}
+	}
+
+	ret = 0;
+	while(inheap > 1)
+	{
+		ret++;
+		ptmp = heap[0];
+		id = idxbuf[0];
+		memcpy(outbuf, ptmp, REC_SIZE); outbuf += REC_SIZE;
+		pop_heap_with_idx(heap, idxbuf, &inheap);
+
+		if(recs[id] > 0)
+		{
+			insert_heap_with_idx(heap, idxbuf, capSize, &inheap, ptmp + REC_SIZE, id);
+			recs[id]--;
+		}
+	}
+
+	if (inheap == 1)
+	{
+		memcpy(outbuf, heap[0], REC_SIZE * (recs[idxbuf[0]] + 1));
+		ret += recs[idxbuf[0]] + 1;
+	}
+
+	free(idxbuf);
+	free(heap);
+
+F_close:
+	return ret;
+}
+
+int merge_sort_mem_bio(char *pathout, unsigned char **pb, int *recs, int nitems)
 {
 	int ret, i;
 	FILE *fpout;
@@ -1964,7 +2023,6 @@ F_close:
 
 
 int merge_sort_mem_dio(char *pathout, unsigned char **pb, int *recs, int nitems, long outfile)
-//		int bufSize, int numConcurrent, long estSize)
 {
 	int ret, i;
 	long fpout = outfile;
@@ -2086,8 +2144,31 @@ JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_merge_1sort
 	return ret;
 }
 
+JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_merge_1sort_1mem
+  (JNIEnv * env, jclass obj, jlong outbuffer, jlongArray jaddrs, jintArray jrecords)
+{
+	long ret = 0;
+	jsize nblocks = (*env)->GetArrayLength(env, jaddrs);
+	jlong *blocks = (*env)->GetLongArrayElements(env, jaddrs, 0);
+	jsize narryrecs = (*env)->GetArrayLength(env, jrecords);
+	jint *nrecs = (*env)->GetIntArrayElements(env, jrecords, 0);
 
-JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_merge_1sort
+	if(nblocks == narryrecs)
+	{
+		ret = merge_sort_mem((unsigned char*)outbuffer, (unsigned char **)blocks, (int *)nrecs, nblocks);
+	}
+	else
+	{
+		ret = -1010;
+	}
+
+	(*env)->ReleaseIntArrayElements(env, jrecords, nrecs, 0);
+	(*env)->ReleaseLongArrayElements(env, jaddrs, blocks, 0);
+	return ret;
+}
+
+
+JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_merge_1sort_1mem_1tofile
   (JNIEnv *env, jclass obj, jstring outpath, jlongArray jaddrs, jlongArray jrecords, jlong outfile)
 {
 	long ret = 0;
@@ -2101,7 +2182,7 @@ JNIEXPORT jlong JNICALL Java_org_apache_hadoop_net_unix_DomainSocket_merge_1sort
 	{
 		if (outfile == 0)
 		{
-			ret = merge_sort_mem(pout, (unsigned char **)blocks, (int *)nrecs, nblocks);
+			ret = merge_sort_mem_bio(pout, (unsigned char **)blocks, (int *)nrecs, nblocks);
 		}
 		else
 		{

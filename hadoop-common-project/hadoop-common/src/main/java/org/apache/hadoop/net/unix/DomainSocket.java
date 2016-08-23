@@ -182,7 +182,9 @@ public class DomainSocket implements Closeable {
 
   public static native long merge_sort_files(String outputfile, String[] inputfiles, long memaddr, int memrecords, int buffersize, long inmode, long outmode);
 
-  public static native long merge_sort(String outputfile, long[] memblocks, int[] numrecs, long outfile);
+  public static native long merge_sort_mem(long outbufAddr, long[] memblocks, int[] numrecs);
+
+  public static native long merge_sort_mem_tofile(String outputfile, long[] memblocks, int[] numrecs, long outfile);
 
   private void unreference(boolean checkClosed) throws ClosedChannelException {
     if (checkClosed) {
