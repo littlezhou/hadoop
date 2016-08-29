@@ -1272,6 +1272,7 @@ int fill_data(struct merge_info *pm, int waitidx, int bufidx)
 		i = waitidx;
 		end = waitidx + 1;
 		shdbufidx = bufidx ? 0 : 1;
+		ret = wait_for_comp(pm, waitidx, bufidx);
 	}
 	else
 	{
@@ -1291,7 +1292,7 @@ int fill_data(struct merge_info *pm, int waitidx, int bufidx)
 			p->aio_buf = (uint64_t)(pm->buffers[i] + shdbufidx * SORT_BUF_SIZE);
 			p->aio_offset = pm->offs[i];
 
-			toread = left > SORT_BUF_SIZE ? SORT_BUF_SIZE : ((left + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE;
+			toread = left > SORT_BUF_SIZE ? SORT_BUF_SIZE : (((left + BLOCK_SIZE - 1) / BLOCK_SIZE) * BLOCK_SIZE);
 			p->aio_nbytes = toread;
 
 			pm->offs[i] += toread;
@@ -1313,7 +1314,7 @@ int fill_data(struct merge_info *pm, int waitidx, int bufidx)
 		pm->inflying += ret;
 	}
 
-	if (waitidx >= 0)
+	if (!sig && waitidx >= 0)
 	{
 		ret = wait_for_comp(pm, waitidx, bufidx);
 	}
@@ -1455,12 +1456,68 @@ void pop_heap_with_idx(unsigned char * buffer[], int idxbuf[], int * currlen)
 	fix_down_heap_with_idx(buffer, idxbuf, *currlen, 0);
 }
 
+int copy_file(char * src ,char * dest )
+{
+	unsigned char buffer[32 * 1024];
+	FILE *fpsrc = NULL, *fpdest = NULL;
+	size_t readed, written;
+	int ret = 0;
+	fpdest = fopen(dest , "w");
+    if(fpdest == NULL)
+    {
+        return -1;
+    }
+
+    fpsrc = fopen(src ,"r" );
+    if(fpsrc == NULL)
+    {
+		unlink(dest);
+        return -2;
+    }
+
+    while(!feof(fpsrc))
+    {
+		readed = fread(buffer, 1, sizeof(buffer), fpsrc);
+		written = fwrite(buffer, 1, readed, fpdest);
+		if(readed != written)
+		{
+			ret = -3;
+			break;
+		}
+    }
+    fclose(fpsrc);
+    fclose(fpdest);
+
+    return ret;
+}
+
+//#define BACK_UP_ORG
+
 int merge_sort_files(char *pathout, char *pathin[], int numInputs, unsigned char *pext, int records, long outfd)
 {
 
 	int numinfiles = 0;
 	int ret = records, tmp, i, j;
 	char *ptmp;
+
+#ifdef BACK_UP_ORG
+	char pathbuf[128];
+	for(i = 0; i < numInputs; i++)
+	{
+		sprintf(pathbuf, "%s_org_%d", pathout, i);
+		copy_file(pathin[i], pathbuf);
+	}
+	if (records > 0)
+	{
+		sprintf(pathbuf, "%s_org_mem", pathout);
+		FILE *fpoutmem = fopen(pathbuf, "w");
+		if(fpoutmem != NULL)
+		{
+			fwrite(pext, REC_SIZE, records, fpoutmem);
+			fclose(fpoutmem);
+		}
+	}
+#endif
 
 #ifdef TIME_STAT
 	struct timeval tvs, tve;
@@ -1480,11 +1537,27 @@ int merge_sort_files(char *pathout, char *pathin[], int numInputs, unsigned char
 		}
 	}
 
+	if (numInputs == 0)
+	{
+		if (records > 0)
+		{
+			if (outfd == 0)
+			{
+				FWRITE(pext, REC_SIZE * records, 1, fpout);
+			}
+			else
+			{
+				FWRITE_DIO(outfd, pext, REC_SIZE * records);
+			}
+		}
+		goto F_exit_close;
+	}
+
 	struct merge_info pminfo;
 	struct merge_info *pm = &pminfo;
 	memset(pm, 0, sizeof(struct merge_info));
 
-	if(io_setup(numInputs, &pm->ctx) != 0)
+	if(io_setup(numInputs * 2, &pm->ctx) != 0)
 	{
 		printf("io_setup failed!\n");
 		return 0;
@@ -1533,6 +1606,7 @@ int merge_sort_files(char *pathout, char *pathin[], int numInputs, unsigned char
 			goto F_err_open;
 		}
 		pm->lens[numinfiles] = lseek(pm->fds[numinfiles], 0, SEEK_END);
+		lseek(pm->fds[numinfiles], 0, SEEK_SET);
 		recs[numinfiles] = pm->lens[numinfiles] / REC_SIZE;
 		ret += recs[numinfiles];
 		numinfiles++;
@@ -1658,6 +1732,7 @@ F_err_open:;
 	}
 	release_merge_info(pm);
 
+F_exit_close:
 	if (outfd == 0)
 	{
 		fclose(fpout);
@@ -1717,6 +1792,22 @@ int merge_sort_files_BIO(char *pathout, char *pathin[], int numInputs, unsigned 
 		{
 			return -1;
 		}
+	}
+
+	if (numInputs == 0)
+	{
+		if (records > 0)
+		{
+			if (outfd == 0)
+			{
+				FWRITE(pext, REC_SIZE * records, 1, fpout);
+			}
+			else
+			{
+				FWRITE_DIO(outfd, pext, REC_SIZE * records);
+			}
+		}
+		goto F_exit_close;
 	}
 
 	struct merge_info pminfo;
@@ -1871,6 +1962,8 @@ F_err_open:;
 	//release_merge_info(pm);
 	free(pm->buffers);
 	free(pm->fds);
+
+F_exit_close:
 	if (outfd == 0)
 	{
 		fclose(fpout);
