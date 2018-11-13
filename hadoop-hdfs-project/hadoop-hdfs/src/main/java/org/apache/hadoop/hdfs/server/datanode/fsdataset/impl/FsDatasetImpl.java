@@ -128,7 +128,7 @@ import org.slf4j.LoggerFactory;
  *
  ***************************************************/
 @InterfaceAudience.Private
-class FsDatasetImpl implements FsDatasetSpi<FsVolumeImpl> {
+public class FsDatasetImpl implements FsDatasetSpi<FsVolumeImpl> {
   static final Logger LOG = LoggerFactory.getLogger(FsDatasetImpl.class);
   private final static boolean isNativeIOAvailable;
   private Timer timer;
@@ -3336,6 +3336,11 @@ class FsDatasetImpl implements FsDatasetSpi<FsVolumeImpl> {
         }
       }
     }
+  }
+
+  @VisibleForTesting
+  public FsDatasetCache getCacheManager() {
+    return cacheManager;
   }
 }
 

@@ -45,6 +45,11 @@ abstract public class ReplicaInfo extends Block
   /** volume where the replica belongs. */
   private FsVolumeSpi volume;
 
+  /** Mandatory for storage class memory cached replica. Ignore for memory
+   * cached replica.
+   **/
+  private String cacheFilePath;
+
   /** This is used by some tests and FsDatasetUtil#computeChecksum. */
   private static final FileIoProvider DEFAULT_FILE_IO_PROVIDER =
       new FileIoProvider(null, null);
@@ -314,5 +319,13 @@ abstract public class ReplicaInfo extends Block
   @Override
   public void setNext(LightWeightResizableGSet.LinkedElement next) {
     this.next = next;
+  }
+
+  public void setCachePath(String path) {
+    this.cacheFilePath = path;
+  }
+
+  public String getCacheFilePath () {
+    return this.cacheFilePath;
   }
 }

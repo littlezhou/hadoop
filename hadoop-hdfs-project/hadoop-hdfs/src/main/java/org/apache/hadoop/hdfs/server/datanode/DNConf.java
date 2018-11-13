@@ -27,6 +27,7 @@ import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_BLOCKREPORT_SPLIT_THRESHO
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_BLOCKREPORT_SPLIT_THRESHOLD_DEFAULT;
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_CACHEREPORT_INTERVAL_MSEC_DEFAULT;
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_CACHEREPORT_INTERVAL_MSEC_KEY;
+import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_DATANODE_CACHE_PMEM_DIR_KEY;
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_DATANODE_LIFELINE_INTERVAL_SECONDS_KEY;
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_DATANODE_NON_LOCAL_LAZY_PERSIST;
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_DATANODE_NON_LOCAL_LAZY_PERSIST_DEFAULT;
@@ -113,6 +114,7 @@ public class DNConf {
   final long restartReplicaExpiry;
 
   final long maxLockedMemory;
+  final String[] pmemDirs;
 
   private final long bpReadyTimeout;
 
@@ -251,6 +253,9 @@ public class DNConf {
     this.maxLockedMemory = getConf().getLongBytes(
         DFS_DATANODE_MAX_LOCKED_MEMORY_KEY,
         DFS_DATANODE_MAX_LOCKED_MEMORY_DEFAULT);
+
+    // Storage class memory directories.
+    pmemDirs = getConf().getTrimmedStrings(DFS_DATANODE_CACHE_PMEM_DIR_KEY);
 
     this.restartReplicaExpiry = getConf().getLong(
         DFS_DATANODE_RESTART_REPLICA_EXPIRY_KEY,
@@ -412,8 +417,11 @@ public class DNConf {
   public long getSlowIoWarningThresholdMs() {
     return datanodeSlowIoWarningThresholdMs;
   }
-
   int getMaxDataLength() {
     return maxDataLength;
+  }
+
+  public String[] getPmemVolumes() {
+    return pmemDirs;
   }
 }

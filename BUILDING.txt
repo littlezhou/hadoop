@@ -81,6 +81,8 @@ Optional packages:
   $ sudo apt-get install fuse libfuse-dev
 * ZStandard compression
     $ sudo apt-get install zstd
+* PMDK library for storage class memory(SCM) as HDFS cache backend
+  Please refer to http://pmem.io/ amd https://github.com/pmem/pmdk
 
 ----------------------------------------------------------------------------------
 Maven main modules:
@@ -264,6 +266,33 @@ Maven build goals:
    It will produce a report in target/dependency-check-report.html. To
    invoke, run 'mvn dependency-check:aggregate'. Note that this plugin
    requires maven 3.1.1 or greater.
+
+ PMDK library build options:
+
+   The Persistent Memory Development Kit (PMDK), formerly known as NVML, is a
+   growing collection of libraries (currently ten of them) which have been
+   developed for various use cases, tuned, validated to production quality, and
+   thoroughly documented. These libraries build on the Direct Access (DAX)
+   feature available in both Linux and Windows, which allows applications direct
+   load/store access to persistent memory by memory-mapping files on a persistent
+   memory aware file system. PMDK also includes a collection of tools, examples,
+   and tutorials on persistent memory programming.
+
+   It is currently an optional component, meaning that Hadoop can be built with
+   or without this dependency. Note the library is used via dynamic module. Please
+   reference the official site for the library details, http://pmem.io/ and
+   https://github.com/pmem/pmdk.
+
+  * Use -Drequire.pmdk to fail the build if libpmem.so is not found.
+    If this option is not specified and the libpmem library is missing,
+    we silently build a version of libhadoop.so that cannot make use of pmdk
+    function and storage class memory(SCM) backed HDFS cache. This option is required
+    if you plan on making use of storage class memory(SCM) backed HDFS cache.
+  * Use -Dpmdk.lib to specify a nonstandard location for the libpmem library
+    files.
+  * Use -Dbundle.pmdk to copy the contents of the libpmem.lib directory into
+    the final tar file. This option requires that -Dpmdk.lib is also given. If
+    -Dpmdk.lib isn't given, the bundling and building will fail.
 
 ----------------------------------------------------------------------------------
 Building components separately

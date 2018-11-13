@@ -36,6 +36,7 @@ import org.apache.hadoop.hdfs.protocol.Block;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.FsVolumeSpi;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.FsVolumeSpi.ScanInfo;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.LengthInputStream;
+import org.apache.hadoop.hdfs.server.datanode.fsdataset.impl.FsDatasetUtil;
 import org.apache.hadoop.io.IOUtils;
 import org.apache.hadoop.io.nativeio.NativeIO;
 import org.apache.hadoop.util.DataChecksum;
@@ -246,6 +247,11 @@ abstract public class LocalReplica extends ReplicaInfo {
     return true;
   }
 
+  private InputStream getDataInputStreamforPmem(String path, long seekoffset)
+    throws IOException {
+    return FsDatasetUtil.getInputStreamAndSeek(new File(path), seekoffset);
+  }
+
   @Override
   public URI getBlockURI() {
     return getBlockFile().toURI();
@@ -253,7 +259,11 @@ abstract public class LocalReplica extends ReplicaInfo {
 
   @Override
   public InputStream getDataInputStream(long seekOffset) throws IOException {
-    return getDataInputStream(getBlockFile(), seekOffset);
+    if (getCacheFilePath() != null) {
+      return getDataInputStreamforPmem(getCacheFilePath(), seekOffset);
+    } else {
+      return getDataInputStream(getBlockFile(), seekOffset);
+    }
   }
 
   @Override

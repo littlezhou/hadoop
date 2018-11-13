@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.RandomAccessFile;
 import java.net.URI;
+import java.nio.channels.Channels;
 import java.util.Arrays;
 
 import com.google.common.base.Preconditions;
@@ -110,6 +111,21 @@ public class FsDatasetUtil {
         raf.seek(offset);
       }
       return raf.getFD();
+    } catch(IOException ioe) {
+      IOUtils.cleanup(null, raf);
+      throw ioe;
+    }
+  }
+
+  public static InputStream getInputStreamAndSeek(File file, long offset)
+      throws IOException {
+    RandomAccessFile raf = null;
+    try {
+      raf = new RandomAccessFile(file, "r");
+      if (offset > 0) {
+        raf.seek(offset);
+      }
+      return Channels.newInputStream(raf.getChannel());
     } catch(IOException ioe) {
       IOUtils.cleanup(null, raf);
       throw ioe;

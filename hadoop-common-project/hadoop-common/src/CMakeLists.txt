@@ -121,6 +121,7 @@ else ()
     ENDIF(REQUIRE_ZSTD)
 endif ()
 
+#Require ISA-L
 set(STORED_CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES})
 hadoop_set_find_shared_library_version("2")
 find_library(ISAL_LIBRARY
@@ -158,6 +159,21 @@ else (ISAL_LIBRARY)
         MESSAGE(FATAL_ERROR "Required ISA-L library could not be found.  ISAL_LIBRARY=${ISAL_LIBRARY}, CUSTOM_ISAL_PREFIX=${CUSTOM_ISAL_PREFIX}")
     ENDIF(REQUIRE_ISAL)
 endif (ISAL_LIBRARY)
+
+#Require PMDK
+set(STORED_CMAKE_FIND_LIBRARY_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES})
+hadoop_set_find_shared_library_version("1")
+find_library(PMDK_LIBRARY
+    NAMES pmem
+     PATHS ${CUSTOM_PMDK_LIB} /usr/lib /usr/lib64)
+set(CMAKE_FIND_LIBRARY_SUFFIXES ${STORED_CMAKE_FIND_LIBRARY_SUFFIXES})
+if (PMDK_LIBRARY)
+    GET_FILENAME_COMPONENT(HADOOP_PMDK_LIBRARY ${PMDK_LIBRARY} NAME)
+else (PMDK_LIBRARY)
+    IF(REQUIRE_PMDK)
+        MESSAGE(FATAL_ERROR "Required PMDK library could not be found.  PMDK_LIBRARY=${PMDK_LIBRARY}")
+    ENDIF(REQUIRE_PMDK)
+endif (PMDK_LIBRARY)
 
 # Build hardware CRC32 acceleration, if supported on the platform.
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^i.86$" OR CMAKE_SYSTEM_PROCESSOR STREQUAL "x86_64" OR CMAKE_SYSTEM_PROCESSOR STREQUAL "amd64")
@@ -256,6 +272,7 @@ hadoop_add_dual_library(hadoop
     ${SRC}/io/compress/zlib/ZlibDecompressor.c
     ${BZIP2_SOURCE_FILES}
     ${SRC}/io/nativeio/NativeIO.c
+	${SRC}/io/nativeio/pmdk_load.c
     ${SRC}/io/nativeio/errno_enum.c
     ${SRC}/io/nativeio/file_descriptor.c
     ${SRC}/io/nativeio/SharedFileDescriptorFactory.c
