@@ -237,7 +237,6 @@ public class FsDatasetCache {
       // TODO: Check the volumes that it's really a persistent memory storage
       for (String location: volumes) {
         try {
-          new Path(location).toUri();
           // Remove all files under the volume. Files may been left after a
           // unexpected data node restart.
           FileUtils.cleanDirectory(new File(location));
@@ -473,7 +472,7 @@ public class FsDatasetCache {
     private final long genstamp;
 
     CachingTask(ExtendedBlockId key, String blockFileName, long length,
-      long genstamp) {
+        long genstamp) {
       this.key = key;
       this.blockFileName = blockFileName;
       this.length = length;

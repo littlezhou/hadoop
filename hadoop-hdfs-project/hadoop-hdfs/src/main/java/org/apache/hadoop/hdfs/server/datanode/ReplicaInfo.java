@@ -325,7 +325,7 @@ abstract public class ReplicaInfo extends Block
     this.cacheFilePath = path;
   }
 
-  public String getCacheFilePath () {
+  public String getCacheFilePath() {
     return this.cacheFilePath;
   }
 }

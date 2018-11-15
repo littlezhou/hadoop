@@ -49,14 +49,14 @@ public interface MappableBlock extends Closeable {
    *
    * @return               The Mappable block.
    */
-  public static MappableBlock load(long length, FileInputStream blockIn,
+  static MappableBlock load(long length, FileInputStream blockIn,
     FileInputStream metaIn, String blockFileName, ExtendedBlockId key)
       throws IOException{
     // Do nothing;
     return null;
   }
 
-  public long getLength();
+  long getLength();
 
-  public void afterCache();
+  void afterCache();
 }

@@ -107,21 +107,21 @@ public class TestFsDatasetCache {
       NativeIO.POSIX.getCacheManipulator().getOperatingSystemPageSize();
   static final long BLOCK_SIZE = PAGE_SIZE;
 
-  static Configuration conf;
-  static MiniDFSCluster cluster = null;
-  static FileSystem fs;
-  static NameNode nn;
-  static FSImage fsImage;
-  static DataNode dn;
-  static FsDatasetSpi<?> fsd;
-  static DatanodeProtocolClientSideTranslatorPB spyNN;
+  protected static Configuration conf;
+  protected static MiniDFSCluster cluster = null;
+  protected static FileSystem fs;
+  protected static NameNode nn;
+  protected static FSImage fsImage;
+  protected static DataNode dn;
+  protected static FsDatasetSpi<?> fsd;
+  protected static DatanodeProtocolClientSideTranslatorPB spyNN;
   /**
    * Used to pause DN BPServiceActor threads. BPSA threads acquire the
    * shared read lock. The test acquires the write lock for exclusive access.
    */
   private static ReadWriteLock lock = new ReentrantReadWriteLock(true);
   private static final PageRounder rounder = new PageRounder();
-  static CacheManipulator prevCacheManipulator;
+  protected static CacheManipulator prevCacheManipulator;
   private static DataNodeFaultInjector oldInjector;
 
   static {

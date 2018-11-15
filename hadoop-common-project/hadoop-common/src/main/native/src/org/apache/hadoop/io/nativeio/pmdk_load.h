@@ -37,7 +37,7 @@
 #ifdef UNIX
 // For libpmem.h
 typedef void * (*__d_pmem_map_file)(const char *path, size_t len, int flags, mode_t mode,
-	size_t *mapped_lenp, int *is_pmemp);
+    size_t *mapped_lenp, int *is_pmemp);
 typedef int (* __d_pmem_unmap)(void *addr, size_t len);
 typedef int (*__d_pmem_is_pmem)(const void *addr, size_t len);
 typedef void (*__d_pmem_drain)(void);

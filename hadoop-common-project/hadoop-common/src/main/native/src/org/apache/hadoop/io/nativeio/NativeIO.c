@@ -291,7 +291,7 @@ static void pmem_region_init(JNIEnv *env, jclass nativeio_class) {
   // Init Stat
   clazz = (*env)->FindClass(env, NATIVE_IO_POSIX_PMEMREGION_CLASS);
   if (!clazz) {
-	THROW(env, "java/io/IOException", "fail to get PmemMappedRegion class");
+    THROW(env, "java/io/IOException", "fail to get PmemMappedRegion class");
     return; // exception has been raised
   }
 
@@ -1480,37 +1480,37 @@ JNIEnv *env, jclass thisClass, jstring filePath, jlong fileLength) {
   path = (*env)->GetStringUTFChars(env, filePath, NULL);
   if (!path) {
     THROW(env, "java/lang/IllegalArgumentException", "File Path cannot be null");
-	return NULL;
+    return NULL;
   }
 
   if (fileLength <= 0) {
-	(*env)->ReleaseStringUTFChars(env, filePath, path);
+    (*env)->ReleaseStringUTFChars(env, filePath, path);
     THROW(env, "java/lang/IllegalArgumentException", "File length should be positive");
-	return NULL;
+    return NULL;
   }
 
   pmemaddr = pmdkLoader->pmem_map_file(path, fileLength, PMEM_FILE_CREATE|PMEM_FILE_EXCL,
-			0666, &mapped_len, &is_pmem);
+      0666, &mapped_len, &is_pmem);
 
   if (!pmemaddr) {
     snprintf(msg, sizeof(msg), "Fail to create pmem file. file: %s, length: %x, error msg: %s", path, fileLength, pmem_errormsg());
     THROW(env, "java/io/IOException", msg);
-	(*env)->ReleaseStringUTFChars(env, filePath, path);
-	return NULL;
+    (*env)->ReleaseStringUTFChars(env, filePath, path);
+    return NULL;
   }
 
   if (fileLength != mapped_len) {
     snprintf(msg, sizeof(msg), "Mapped length doesn't match the request length. file :%s, request length:%x, returned length:%x, error msg:%s", path, fileLength, mapped_len, pmem_errormsg());
     THROW(env, "java/io/IOException", msg);
-	(*env)->ReleaseStringUTFChars(env, filePath, path);
-	return NULL;
+    (*env)->ReleaseStringUTFChars(env, filePath, path);
+    return NULL;
   }
 
   (*env)->ReleaseStringUTFChars(env, filePath, path);
 
   if ((!pmem_region_clazz) || (!pmem_region_ctor)) {
     THROW(env, "java/io/IOException", "PmemMappedRegion class or constructor is NULL");
-	return NULL;
+    return NULL;
   }
 
   jobject ret = (*env)->NewObject(env, pmem_region_clazz, pmem_region_ctor, pmemaddr, mapped_len, (jboolean)is_pmem);
@@ -1537,11 +1537,11 @@ JNIEnv *env, jclass thisClass, jlong address, jlong length) {
   succeed = pmdkLoader->pmem_unmap(address, length);
   // succeed = -1 failure; succeed = 0 success
   if (succeed != 0) {
-	snprintf(msg, sizeof(msg), "Fail to unmap region. address: %x, length: %x, error msg: %s", address, length, pmem_errormsg());
+    snprintf(msg, sizeof(msg), "Fail to unmap region. address: %x, length: %x, error msg: %s", address, length, pmem_errormsg());
     THROW(env, "java/io/IOException", msg);
     return JNI_FALSE;
   } else {
-	return JNI_TRUE;
+    return JNI_TRUE;
   }
   #endif
 
@@ -1563,13 +1563,13 @@ JNIEnv *env, jclass thisClass, jbyteArray buf, jlong address, jboolean is_pmem, 
 
   #ifdef UNIX
     jbyte* srcBuf = (*env)->GetByteArrayElements(env, buf, 0);
-	snprintf(msg, sizeof(msg), "Pmem copy content. dest: %x, length: %x, src: %x ", address, length, srcBuf);
-	if (is_pmem) {
-	   pmdkLoader->pmem_memcpy_nodrain(address, srcBuf, length);
-	} else {
-	   memcpy(address, srcBuf, length);
-	}
-	(*env)->ReleaseByteArrayElements(env, buf, srcBuf, 0);
+    snprintf(msg, sizeof(msg), "Pmem copy content. dest: %x, length: %x, src: %x ", address, length, srcBuf);
+    if (is_pmem) {
+      pmdkLoader->pmem_memcpy_nodrain(address, srcBuf, length);
+    } else {
+      memcpy(address, srcBuf, length);
+    }
+    (*env)->ReleaseByteArrayElements(env, buf, srcBuf, 0);
     return;
   #endif
 
@@ -1610,9 +1610,9 @@ JNIEXPORT void JNICALL Java_org_apache_hadoop_io_nativeio_NativeIO_00024POSIX_pm
   succeed = pmdkLoader->pmem_msync(address, length);
   // succeed = -1 failure
   if (succeed = -1) {
-	snprintf(msg, sizeof(msg), "Fail to msync region. address: %x, length: %x, error msg: %s", address, length, pmem_errormsg());
+    snprintf(msg, sizeof(msg), "Fail to msync region. address: %x, length: %x, error msg: %s", address, length, pmem_errormsg());
     THROW(env, "java/io/IOException", msg);
-	return;
+    return;
   }
   #endif
 

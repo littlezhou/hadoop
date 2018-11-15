@@ -88,7 +88,7 @@ public class TestFsDatasetPmemCache extends TestFsDatasetCache {
 
     Configuration myConf = new HdfsConfiguration();
     myConf.setLong(DFSConfigKeys.DFS_DATANODE_MAX_LOCKED_MEMORY_KEY,
-       CACHE_CAPACITY);
+        CACHE_CAPACITY);
 
     // No Pmem directory is set
     MiniDFSCluster myCluster = new MiniDFSCluster.Builder(myConf)

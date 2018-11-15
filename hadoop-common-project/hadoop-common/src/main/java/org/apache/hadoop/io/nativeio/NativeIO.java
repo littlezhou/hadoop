@@ -169,7 +169,7 @@ public class NativeIO {
 
       // copy data from disk file(src) to pmem file(dest), without flush
       public static void memCopy(byte[] src, long dest, boolean isPmem,
-        long length) {
+          long length) {
         NativeIO.POSIX.pmemCopy(src, dest, isPmem, length);
       }
 
@@ -190,7 +190,7 @@ public class NativeIO {
     private static native void pmemCopy(byte[] src, long dest, boolean isPmem,
         long length);
     private static native void pmemDrain();
-	  private static native void pmemSync(long address, long length);
+    private static native void pmemSync(long address, long length);
 
     /**
      * Used to manipulate the operating system cache.

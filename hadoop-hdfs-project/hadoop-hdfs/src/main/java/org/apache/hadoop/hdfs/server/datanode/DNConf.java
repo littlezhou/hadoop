@@ -114,7 +114,7 @@ public class DNConf {
   final long restartReplicaExpiry;
 
   final long maxLockedMemory;
-  final String[] pmemDirs;
+  private final String[] pmemDirs;
 
   private final long bpReadyTimeout;
 

@@ -272,7 +272,7 @@ hadoop_add_dual_library(hadoop
     ${SRC}/io/compress/zlib/ZlibDecompressor.c
     ${BZIP2_SOURCE_FILES}
     ${SRC}/io/nativeio/NativeIO.c
-	${SRC}/io/nativeio/pmdk_load.c
+    ${SRC}/io/nativeio/pmdk_load.c
     ${SRC}/io/nativeio/errno_enum.c
     ${SRC}/io/nativeio/file_descriptor.c
     ${SRC}/io/nativeio/SharedFileDescriptorFactory.c

@@ -126,11 +126,11 @@ public class PmemMappedBlock implements MappableBlock {
    * @return               The Mappable block.
    */
   public static MappableBlock load(long length, FileInputStream blockIn,
-    FileInputStream metaIn, String blockFileName, ExtendedBlockId key)
-    throws IOException {
+      FileInputStream metaIn, String blockFileName, ExtendedBlockId key)
+      throws IOException {
 
     PmemMappedBlock mappableBlock = null;
-	  PmemMappedRegion region = null;
+    PmemMappedRegion region = null;
     String filePath = null;
 
     FileChannel blockChannel = null;

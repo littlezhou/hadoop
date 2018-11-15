@@ -76,7 +76,7 @@ public class MemoryMappedBlock implements MappableBlock {
    * @return               The Mappable block.
    */
   public static MappableBlock load(long length, FileInputStream blockIn,
-    FileInputStream metaIn, String blockFileName, ExtendedBlockId key)
+      FileInputStream metaIn, String blockFileName, ExtendedBlockId key)
       throws IOException {
     MemoryMappedBlock mappableBlock = null;
     MappedByteBuffer mmap = null;
@@ -117,7 +117,8 @@ public class MemoryMappedBlock implements MappableBlock {
     try {
       metaChannel = metaIn.getChannel();
       if (metaChannel == null) {
-        throw new IOException("Block InputStream meta file has no FileChannel.");
+        throw new IOException(
+            "Block InputStream meta file has no FileChannel.");
       }
       DataChecksum checksum = header.getChecksum();
       final int bytesPerChecksum = checksum.getBytesPerChecksum();
@@ -154,7 +155,7 @@ public class MemoryMappedBlock implements MappableBlock {
   }
 
   /**
-   * Reads bytes into a buffer until EOF or the buffer's limit is reached
+   * Reads bytes into a buffer until EOF or the buffer's limit is reached.
    */
   private static int fillBuffer(FileChannel channel, ByteBuffer buf)
       throws IOException {

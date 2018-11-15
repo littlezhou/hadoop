@@ -248,7 +248,7 @@ abstract public class LocalReplica extends ReplicaInfo {
   }
 
   private InputStream getDataInputStreamforPmem(String path, long seekoffset)
-    throws IOException {
+      throws IOException {
     return FsDatasetUtil.getInputStreamAndSeek(new File(path), seekoffset);
   }
 
