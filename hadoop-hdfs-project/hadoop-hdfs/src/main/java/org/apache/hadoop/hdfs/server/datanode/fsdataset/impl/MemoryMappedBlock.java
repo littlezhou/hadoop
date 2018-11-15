@@ -122,9 +122,9 @@ public class MemoryMappedBlock implements MappableBlock {
       DataChecksum checksum = header.getChecksum();
       final int bytesPerChecksum = checksum.getBytesPerChecksum();
       final int checksumSize = checksum.getChecksumSize();
-      final int numChunks = (8*1024*1024) / bytesPerChecksum;
-      ByteBuffer blockBuf = ByteBuffer.allocate(numChunks*bytesPerChecksum);
-      ByteBuffer checksumBuf = ByteBuffer.allocate(numChunks*checksumSize);
+      final int numChunks = (8 * 1024 * 1024) / bytesPerChecksum;
+      ByteBuffer blockBuf = ByteBuffer.allocate(numChunks * bytesPerChecksum);
+      ByteBuffer checksumBuf = ByteBuffer.allocate(numChunks * checksumSize);
       // Verify the checksum
       int bytesVerified = 0;
       while (bytesVerified < length) {
@@ -137,8 +137,8 @@ public class MemoryMappedBlock implements MappableBlock {
         }
         blockBuf.flip();
         // Number of read chunks, including partial chunk at end
-        int chunks = (bytesRead+bytesPerChecksum-1) / bytesPerChecksum;
-        checksumBuf.limit(chunks*checksumSize);
+        int chunks = (bytesRead + bytesPerChecksum - 1) / bytesPerChecksum;
+        checksumBuf.limit(chunks * checksumSize);
         fillBuffer(metaChannel, checksumBuf);
         checksumBuf.flip();
         checksum.verifyChunkedSums(blockBuf, checksumBuf, blockFileName,

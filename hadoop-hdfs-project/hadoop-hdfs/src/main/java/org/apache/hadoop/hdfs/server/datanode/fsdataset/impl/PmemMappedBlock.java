@@ -61,7 +61,7 @@ public class PmemMappedBlock implements MappableBlock {
   private PageRounder rounder;
 
   PmemMappedBlock(long pmemMappedAddres, long length, String filePath,
-                  ExtendedBlockId key) {
+      ExtendedBlockId key) {
     assert length > 0;
     this.pmemMappedAddres = pmemMappedAddres;
     this.length = length;
@@ -207,8 +207,8 @@ public class PmemMappedBlock implements MappableBlock {
         }
         blockBuf.flip();
         // Number of read chunks, including partial chunk at end
-        int chunks = (bytesRead+bytesPerChecksum-1) / bytesPerChecksum;
-        checksumBuf.limit(chunks*checksumSize);
+        int chunks = (bytesRead+bytesPerChecksum - 1) / bytesPerChecksum;
+        checksumBuf.limit(chunks * checksumSize);
         fillBuffer(metaChannel, checksumBuf);
         checksumBuf.flip();
         checksum.verifyChunkedSums(blockBuf, checksumBuf, blockFileName,

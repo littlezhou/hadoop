@@ -99,9 +99,9 @@ public class TestFsDatasetPmemCache extends TestFsDatasetCache {
         .getPmemManager());
     myCluster.shutdown();
 
-    // One Pmem directory is set    
+    // One Pmem directory is set
     String pmem0 = "/mnt/pmem0";
-    myConf.set(DFS_DATANODE_CACHE_PMEM_DIR_KEY, pmem0);    
+    myConf.set(DFS_DATANODE_CACHE_PMEM_DIR_KEY, pmem0);
     myCluster = new MiniDFSCluster.Builder(myConf)
         .numDataNodes(1).build();
     myCluster.waitActive();
@@ -110,7 +110,7 @@ public class TestFsDatasetPmemCache extends TestFsDatasetCache {
         .getPmemManager().getOneLocation());
     myCluster.shutdown();
 
-    // Two Pmem directories are set    
+    // Two Pmem directories are set
     String pmem1 = "/mnt/pmem1";
     myConf.set(DFS_DATANODE_CACHE_PMEM_DIR_KEY, pmem0 + "," + pmem1);
     myCluster = new MiniDFSCluster.Builder(myConf)

@@ -71,7 +71,6 @@ void load_pmdk_lib(char* err, size_t err_len) {
     return;
   }
   pmdkLoader = calloc(1, sizeof(PmdkLibLoader));
-  memset(pmdkLoader, 0, sizeof(PmdkLibLoader));
 
   // Load Intel ISA-L
   #ifdef UNIX

@@ -127,7 +127,7 @@ public class NativeIO {
       POSIX.cacheManipulator = cacheManipulator;
     }
 
-	 public static class PmemMappedRegion{
+    public static class PmemMappedRegion {
       private long address;
       private long length;
       private boolean isPmem;
@@ -185,10 +185,10 @@ public class NativeIO {
 
     private static native boolean isPmemCheck(long address, long length);
     private static native PmemMappedRegion pmemCreateMapFile(String path,
-      long length);
+        long length);
     private static native boolean pmemUnMap(long address, long length);
     private static native void pmemCopy(byte[] src, long dest, boolean isPmem,
-      long lenght);
+        long length);
     private static native void pmemDrain();
 	  private static native void pmemSync(long address, long length);
 
@@ -198,7 +198,7 @@ public class NativeIO {
     @VisibleForTesting
     public static class CacheManipulator {
       public void mlock(String identifier, ByteBuffer buffer,
-        long len) throws IOException {
+          long len) throws IOException {
         POSIX.mlock(buffer, len);
       }
 
@@ -211,7 +211,7 @@ public class NativeIO {
       }
 
       public void posixFadviseIfPossible(String identifier,
-        FileDescriptor fd, long offset, long len, int flags)
+          FileDescriptor fd, long offset, long len, int flags)
           throws NativeIOException {
         NativeIO.POSIX.posixFadviseIfPossible(identifier, fd, offset,
             len, flags);

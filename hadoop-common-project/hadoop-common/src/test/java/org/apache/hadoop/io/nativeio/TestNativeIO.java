@@ -914,7 +914,7 @@ public class TestNativeIO {
     return result;
   }
 
-   private static void deletePmemMappedFile(String filePath) {
+  private static void deletePmemMappedFile(String filePath) {
     try {
       if (filePath != null) {
         boolean result = Files.deleteIfExists(Paths.get(filePath));
