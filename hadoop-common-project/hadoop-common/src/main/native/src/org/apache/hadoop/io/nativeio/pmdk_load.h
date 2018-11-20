@@ -27,7 +27,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <dlfcn.h>
-#include <libpmem.h>
 #endif
 
 #ifndef _PMDK_LOAD_H_

@@ -100,9 +100,6 @@ public class NativeIO {
        write.  */
     public static int SYNC_FILE_RANGE_WAIT_AFTER = 4;
 
-    // PMDK file create flag
-    public static int PMEM_FILE_CREATE_FLAG = 1;
-
     private static final Logger LOG = LoggerFactory.getLogger(NativeIO.class);
 
     // Set to true via JNI if possible

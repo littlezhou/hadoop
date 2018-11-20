@@ -37,9 +37,9 @@
 PmdkLibLoader * pmdkLoader;
 
 /**
- *  isal_load.c
- *  Utility of loading the ISA-L library and the required functions.
- *  Building of this codes won't rely on any ISA-L source codes, but running
+ *  pmdk_load.c
+ *  Utility of loading the libpmem library and the required functions.
+ *  Building of this codes won't rely on any libpmem source codes, but running
  *  into this will rely on successfully loading of the dynamic library.
  *
  */
@@ -77,7 +77,7 @@ void load_pmdk_lib(char* err, size_t err_len) {
   pmdkLoader->libec = dlopen(HADOOP_PMDK_LIBRARY, RTLD_LAZY | RTLD_GLOBAL);
   if (pmdkLoader->libec == NULL) {
     snprintf(err, err_len, "Failed to load %s (%s)",
-                             HADOOP_PMDK_LIBRARY, dlerror());
+        HADOOP_PMDK_LIBRARY, dlerror());
     return;
   }
   // Clear any existing error

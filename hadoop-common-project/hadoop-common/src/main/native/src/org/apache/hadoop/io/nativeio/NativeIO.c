@@ -36,7 +36,6 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
-#include <libpmem.h>
 #if !(defined(__FreeBSD__) || defined(__MACH__))
 #include <sys/sendfile.h>
 #endif
@@ -1489,7 +1488,7 @@ JNIEnv *env, jclass thisClass, jstring filePath, jlong fileLength) {
     return NULL;
   }
 
-  pmemaddr = pmdkLoader->pmem_map_file(path, fileLength, PMEM_FILE_CREATE|PMEM_FILE_EXCL,
+  pmemaddr = pmdkLoader->pmem_map_file(path, fileLength, 3,
       0666, &mapped_len, &is_pmem);
 
   if (!pmemaddr) {
