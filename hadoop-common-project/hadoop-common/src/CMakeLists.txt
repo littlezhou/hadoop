@@ -169,9 +169,12 @@ find_library(PMDK_LIBRARY
 set(CMAKE_FIND_LIBRARY_SUFFIXES ${STORED_CMAKE_FIND_LIBRARY_SUFFIXES})
 if (PMDK_LIBRARY)
     GET_FILENAME_COMPONENT(HADOOP_PMDK_LIBRARY ${PMDK_LIBRARY} NAME)
+    set(PMDK_SOURCE_FILES ${SRC}/io/nativeio/pmdk_load.c)
 else (PMDK_LIBRARY)
     IF(REQUIRE_PMDK)
         MESSAGE(FATAL_ERROR "Required PMDK library could not be found.  PMDK_LIBRARY=${PMDK_LIBRARY}")
+    ELSE(REQUIRE_PMDK)
+        MESSAGE(STATUS "No PMDK library found, continue building without PMDK support")
     ENDIF(REQUIRE_PMDK)
 endif (PMDK_LIBRARY)
 
@@ -272,7 +275,7 @@ hadoop_add_dual_library(hadoop
     ${SRC}/io/compress/zlib/ZlibDecompressor.c
     ${BZIP2_SOURCE_FILES}
     ${SRC}/io/nativeio/NativeIO.c
-    ${SRC}/io/nativeio/pmdk_load.c
+    ${PMDK_SOURCE_FILES}
     ${SRC}/io/nativeio/errno_enum.c
     ${SRC}/io/nativeio/file_descriptor.c
     ${SRC}/io/nativeio/SharedFileDescriptorFactory.c

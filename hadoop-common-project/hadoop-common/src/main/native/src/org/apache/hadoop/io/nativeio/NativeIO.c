@@ -36,6 +36,9 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#ifdef HADOOP_PMDK_LIBRARY
+#include <libpmem.h>
+#endif
 #if !(defined(__FreeBSD__) || defined(__MACH__))
 #include <sys/sendfile.h>
 #endif
@@ -275,12 +278,19 @@ static void nioe_deinit(JNIEnv *env) {
   nioe_ctor = NULL;
 }
 
-
+#ifdef HADOOP_PMDK_LIBRARY
 static void loadPmdkLib(JNIEnv *env) {
   char errMsg[1024];
+  jclass clazz = (*env)->FindClass(env, NATIVE_IO_POSIX_CLASS);
+  if (clazz == NULL) {
+    return; // exception has been raised
+  }
+  setStaticInt(env, clazz, "PMDK_SUPPORT_STATE", 0);
   load_pmdk_lib(errMsg, sizeof(errMsg));
   if (strlen(errMsg) > 0) {
     THROW(env, "java/lang/UnsatisfiedLinkError", errMsg);
+  } else {
+    setStaticInt(env, clazz, "PMDK_SUPPORT_STATE", 1);
   }
 }
 
@@ -319,6 +329,7 @@ static void pmem_region_deinit(JNIEnv *env) {
     pmem_region_clazz = NULL;
   }
  }
+#endif
 
 /*
  * private static native void initNative();
@@ -343,8 +354,10 @@ Java_org_apache_hadoop_io_nativeio_NativeIO_initNative(
 #ifdef UNIX
   errno_enum_init(env);
   PASS_EXCEPTIONS_GOTO(env, error);
+#ifdef HADOOP_PMDK_LIBRARY
   loadPmdkLib(env);
   pmem_region_init(env, clazz);
+#endif
 #endif
   return;
 error:
@@ -352,7 +365,9 @@ error:
   // class wasn't initted yet
 #ifdef UNIX
   stat_deinit(env);
+#ifdef HADOOP_PMDK_LIBRARY
   pmem_region_deinit(env);
+#endif
 #endif
   nioe_deinit(env);
   fd_deinit(env);
@@ -1449,14 +1464,12 @@ extern "C" {
  */
 JNIEXPORT jboolean JNICALL Java_org_apache_hadoop_io_nativeio_NativeIO_00024POSIX_isPmemCheck(
 JNIEnv *env, jclass thisClass, jlong address, jlong length) {
-  #ifdef UNIX
+  #if (defined UNIX) && (defined HADOOP_PMDK_LIBRARY)
     jint is_pmem = pmdkLoader->pmem_is_pmem(address, length);
     return (is_pmem) ? JNI_TRUE : JNI_FALSE;
-  #endif
-
-  #ifdef WINDOWS
+  #else
     THROW(env, "java/lang/UnsupportedOperationException",
-      "The function isPmemCheck is not supported on Windows.");
+        "The function isPmemCheck is not supported.");
   #endif
   }
 
@@ -1467,59 +1480,57 @@ JNIEnv *env, jclass thisClass, jlong address, jlong length) {
  */
 JNIEXPORT jobject JNICALL Java_org_apache_hadoop_io_nativeio_NativeIO_00024POSIX_pmemCreateMapFile(
 JNIEnv *env, jclass thisClass, jstring filePath, jlong fileLength) {
-  #ifdef UNIX
+  #if (defined UNIX) && (defined HADOOP_PMDK_LIBRARY)
 
-  /* create a pmem file and memory map it */
-  const char * path = NULL;
-  void * pmemaddr = NULL;
-  size_t mapped_len = 0;
-  int is_pmem = 1;
-  char msg[1000];
+    /* create a pmem file and memory map it */
+    const char * path = NULL;
+    void * pmemaddr = NULL;
+    size_t mapped_len = 0;
+    int is_pmem = 1;
+    char msg[1000];
 
-  path = (*env)->GetStringUTFChars(env, filePath, NULL);
-  if (!path) {
-    THROW(env, "java/lang/IllegalArgumentException", "File Path cannot be null");
-    return NULL;
-  }
+    path = (*env)->GetStringUTFChars(env, filePath, NULL);
+    if (!path) {
+      THROW(env, "java/lang/IllegalArgumentException", "File Path cannot be null");
+      return NULL;
+    }
 
-  if (fileLength <= 0) {
+    if (fileLength <= 0) {
+      (*env)->ReleaseStringUTFChars(env, filePath, path);
+      THROW(env, "java/lang/IllegalArgumentException", "File length should be positive");
+      return NULL;
+    }
+
+    pmemaddr = pmdkLoader->pmem_map_file(path, fileLength, PMEM_FILE_CREATE|PMEM_FILE_EXCL,
+        0666, &mapped_len, &is_pmem);
+
+    if (!pmemaddr) {
+      snprintf(msg, sizeof(msg), "Fail to create pmem file. file: %s, length: %x, error msg: %s", path, fileLength, pmem_errormsg());
+      THROW(env, "java/io/IOException", msg);
+      (*env)->ReleaseStringUTFChars(env, filePath, path);
+      return NULL;
+    }
+
+    if (fileLength != mapped_len) {
+      snprintf(msg, sizeof(msg), "Mapped length doesn't match the request length. file :%s, request length:%x, returned length:%x, error msg:%s", path, fileLength, mapped_len, pmem_errormsg());
+      THROW(env, "java/io/IOException", msg);
+      (*env)->ReleaseStringUTFChars(env, filePath, path);
+      return NULL;
+    }
+
     (*env)->ReleaseStringUTFChars(env, filePath, path);
-    THROW(env, "java/lang/IllegalArgumentException", "File length should be positive");
-    return NULL;
-  }
 
-  pmemaddr = pmdkLoader->pmem_map_file(path, fileLength, 3,
-      0666, &mapped_len, &is_pmem);
+    if ((!pmem_region_clazz) || (!pmem_region_ctor)) {
+      THROW(env, "java/io/IOException", "PmemMappedRegion class or constructor is NULL");
+      return NULL;
+    }
 
-  if (!pmemaddr) {
-    snprintf(msg, sizeof(msg), "Fail to create pmem file. file: %s, length: %x, error msg: %s", path, fileLength, pmem_errormsg());
-    THROW(env, "java/io/IOException", msg);
-    (*env)->ReleaseStringUTFChars(env, filePath, path);
-    return NULL;
-  }
+    jobject ret = (*env)->NewObject(env, pmem_region_clazz, pmem_region_ctor, pmemaddr, mapped_len, (jboolean)is_pmem);
+    return ret;
 
-  if (fileLength != mapped_len) {
-    snprintf(msg, sizeof(msg), "Mapped length doesn't match the request length. file :%s, request length:%x, returned length:%x, error msg:%s", path, fileLength, mapped_len, pmem_errormsg());
-    THROW(env, "java/io/IOException", msg);
-    (*env)->ReleaseStringUTFChars(env, filePath, path);
-    return NULL;
-  }
-
-  (*env)->ReleaseStringUTFChars(env, filePath, path);
-
-  if ((!pmem_region_clazz) || (!pmem_region_ctor)) {
-    THROW(env, "java/io/IOException", "PmemMappedRegion class or constructor is NULL");
-    return NULL;
-  }
-
-  jobject ret = (*env)->NewObject(env, pmem_region_clazz, pmem_region_ctor, pmemaddr, mapped_len, (jboolean)is_pmem);
-  return ret;
-
-  #endif
-
-  #ifdef WINDOWS
-  THROW(env, "java/lang/UnsupportedOperationException",
-      "The function pmemCreateMapFile is not supported on Windows.");
+  #else
+    THROW(env, "java/lang/UnsupportedOperationException",
+        "The function pmemCreateMapFile is not supported.");
   #endif
   }
 
@@ -1530,23 +1541,21 @@ JNIEnv *env, jclass thisClass, jstring filePath, jlong fileLength) {
  */
 JNIEXPORT jboolean JNICALL Java_org_apache_hadoop_io_nativeio_NativeIO_00024POSIX_pmemUnMap(
 JNIEnv *env, jclass thisClass, jlong address, jlong length) {
-  #ifdef UNIX
-  int succeed = 0;
-  char msg[1000];
-  succeed = pmdkLoader->pmem_unmap(address, length);
-  // succeed = -1 failure; succeed = 0 success
-  if (succeed != 0) {
-    snprintf(msg, sizeof(msg), "Fail to unmap region. address: %x, length: %x, error msg: %s", address, length, pmem_errormsg());
-    THROW(env, "java/io/IOException", msg);
-    return JNI_FALSE;
-  } else {
-    return JNI_TRUE;
-  }
-  #endif
-
-  #ifdef WINDOWS
+  #if (defined UNIX) && (defined HADOOP_PMDK_LIBRARY)
+    int succeed = 0;
+    char msg[1000];
+    succeed = pmdkLoader->pmem_unmap(address, length);
+    // succeed = -1 failure; succeed = 0 success
+    if (succeed != 0) {
+      snprintf(msg, sizeof(msg), "Fail to unmap region. address: %x, length: %x, error msg: %s", address, length, pmem_errormsg());
+      THROW(env, "java/io/IOException", msg);
+      return JNI_FALSE;
+    } else {
+      return JNI_TRUE;
+    }
+  #else
     THROW(env, "java/lang/UnsupportedOperationException",
-      "The function pmemUnMap is not supported on Windows.");
+        "The function pmemUnMap is not supported.");
   #endif
   }
 
@@ -1557,10 +1566,8 @@ JNIEnv *env, jclass thisClass, jlong address, jlong length) {
  */
 JNIEXPORT void JNICALL Java_org_apache_hadoop_io_nativeio_NativeIO_00024POSIX_pmemCopy(
 JNIEnv *env, jclass thisClass, jbyteArray buf, jlong address, jboolean is_pmem, jlong length) {
-
-  char msg[1000];
-
-  #ifdef UNIX
+  #if (defined UNIX) && (defined HADOOP_PMDK_LIBRARY)
+    char msg[1000];
     jbyte* srcBuf = (*env)->GetByteArrayElements(env, buf, 0);
     snprintf(msg, sizeof(msg), "Pmem copy content. dest: %x, length: %x, src: %x ", address, length, srcBuf);
     if (is_pmem) {
@@ -1570,11 +1577,9 @@ JNIEnv *env, jclass thisClass, jbyteArray buf, jlong address, jboolean is_pmem, 
     }
     (*env)->ReleaseByteArrayElements(env, buf, srcBuf, 0);
     return;
-  #endif
-
-  #ifdef WINDOWS
+  #else
     THROW(env, "java/lang/UnsupportedOperationException",
-      "The function pmemCopy is not supported on Windows.");
+        "The function pmemCopy is not supported.");
   #endif
   }
 
@@ -1585,13 +1590,11 @@ JNIEnv *env, jclass thisClass, jbyteArray buf, jlong address, jboolean is_pmem, 
  */
 JNIEXPORT void JNICALL Java_org_apache_hadoop_io_nativeio_NativeIO_00024POSIX_pmemDrain(
 JNIEnv *env, jclass thisClass) {
-  #ifdef UNIX
+  #if (defined UNIX) && (defined HADOOP_PMDK_LIBRARY)
     pmdkLoader->pmem_drain();
-  #endif
-
-  #ifdef WINDOWS
+  #else
     THROW(env, "java/lang/UnsupportedOperationException",
-      "The function pmemDrain is not supported on Windows.");
+        "The function pmemDrain is not supported.");
   #endif
   }
 
@@ -1603,21 +1606,19 @@ JNIEnv *env, jclass thisClass) {
 JNIEXPORT void JNICALL Java_org_apache_hadoop_io_nativeio_NativeIO_00024POSIX_pmemSync
   (JNIEnv * env, jclass thisClass, jlong address, jlong length) {
 
-  #ifdef UNIX
-  int succeed = 0;
-  char msg[1000];
-  succeed = pmdkLoader->pmem_msync(address, length);
-  // succeed = -1 failure
-  if (succeed = -1) {
-    snprintf(msg, sizeof(msg), "Fail to msync region. address: %x, length: %x, error msg: %s", address, length, pmem_errormsg());
-    THROW(env, "java/io/IOException", msg);
-    return;
-  }
-  #endif
-
-  #ifdef WINDOWS
+  #if (defined UNIX) && (defined HADOOP_PMDK_LIBRARY)
+    int succeed = 0;
+    char msg[1000];
+    succeed = pmdkLoader->pmem_msync(address, length);
+    // succeed = -1 failure
+    if (succeed = -1) {
+      snprintf(msg, sizeof(msg), "Fail to msync region. address: %x, length: %x, error msg: %s", address, length, pmem_errormsg());
+      THROW(env, "java/io/IOException", msg);
+      return;
+    }
+  #else
     THROW(env, "java/lang/UnsupportedOperationException",
-      "The function pmemSync is not supported on Windows.");
+        "The function pmemSync is not supported.");
   #endif
   }
 

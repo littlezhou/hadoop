@@ -279,7 +279,7 @@ public class FsDatasetCache {
    */
   final AtomicLong numBlocksFailedToUncache = new AtomicLong(0);
 
-  public FsDatasetCache(FsDatasetImpl dataset) {
+  public FsDatasetCache(FsDatasetImpl dataset) throws IOException {
     this.dataset = dataset;
     this.maxBytes = dataset.datanode.getDnConf().getMaxLockedMemory();
     ThreadFactory workerFactory = new ThreadFactoryBuilder()
@@ -314,6 +314,9 @@ public class FsDatasetCache {
 
     String[] pmemVolumes = dataset.datanode.getDnConf().getPmemVolumes();
     if (pmemVolumes != null && pmemVolumes.length != 0) {
+      if (!NativeIO.isAvailable() || !NativeIO.POSIX.isPmemAvailable()) {
+        throw new IOException("Persistent memory storage configured, but not available!");
+      }
       this.pmemManager = new PmemVolumeManager();
       this.pmemManager.load(pmemVolumes);
       PmemMappedBlock.setPersistentMemoryManager(this.pmemManager);

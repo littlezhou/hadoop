@@ -100,6 +100,13 @@ public class NativeIO {
        write.  */
     public static int SYNC_FILE_RANGE_WAIT_AFTER = 4;
 
+    /* Denotes the state of supporting PMDK:
+           < 0, native code build without PMDK support
+           > 0, supported by native code, but PMDK dynamic library NOT found in execution environment or failed to be loaded
+           ==0, ready for use, supported by native code, and PMDK library loaded successfully
+       The value is set by JNI. */
+    public static int PMDK_SUPPORT_STATE = -1;
+
     private static final Logger LOG = LoggerFactory.getLogger(NativeIO.class);
 
     // Set to true via JNI if possible
@@ -122,6 +129,10 @@ public class NativeIO {
 
     public static void setCacheManipulator(CacheManipulator cacheManipulator) {
       POSIX.cacheManipulator = cacheManipulator;
+    }
+
+    public static boolean isPmemAvailable() {
+      return PMDK_SUPPORT_STATE == 0;
     }
 
     public static class PmemMappedRegion {

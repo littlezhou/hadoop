@@ -104,11 +104,3 @@ void load_pmdk_lib(char* err, size_t err_len) {
 
   pmdkLoader->libname = strdup(library);
 }
-
-int build_support_pmdk() {
-#ifdef HADOOP_PMDK_LIBRARY
-  return 1;
-#else
-  return 0;
-#endif
-}
