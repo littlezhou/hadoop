@@ -279,19 +279,19 @@ static void nioe_deinit(JNIEnv *env) {
 }
 
 #ifdef HADOOP_PMDK_LIBRARY
-static void loadPmdkLib(JNIEnv *env) {
+static int loadPmdkLib(JNIEnv *env) {
   char errMsg[1024];
   jclass clazz = (*env)->FindClass(env, NATIVE_IO_POSIX_CLASS);
   if (clazz == NULL) {
-    return; // exception has been raised
+    return 0; // exception has been raised
   }
-  setStaticInt(env, clazz, "PMDK_SUPPORT_STATE", 0);
   load_pmdk_lib(errMsg, sizeof(errMsg));
   if (strlen(errMsg) > 0) {
-    THROW(env, "java/lang/UnsatisfiedLinkError", errMsg);
-  } else {
     setStaticInt(env, clazz, "PMDK_SUPPORT_STATE", 1);
+    return 0;
   }
+  setStaticInt(env, clazz, "PMDK_SUPPORT_STATE", 0);
+  return 1;
 }
 
 static void pmem_region_init(JNIEnv *env, jclass nativeio_class) {
@@ -355,8 +355,9 @@ Java_org_apache_hadoop_io_nativeio_NativeIO_initNative(
   errno_enum_init(env);
   PASS_EXCEPTIONS_GOTO(env, error);
 #ifdef HADOOP_PMDK_LIBRARY
-  loadPmdkLib(env);
-  pmem_region_init(env, clazz);
+  if (loadPmdkLib(env)) {
+    pmem_region_init(env, clazz);
+  }
 #endif
 #endif
   return;
