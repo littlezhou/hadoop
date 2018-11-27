@@ -107,21 +107,21 @@ public class TestFsDatasetCache {
       NativeIO.POSIX.getCacheManipulator().getOperatingSystemPageSize();
   static final long BLOCK_SIZE = PAGE_SIZE;
 
-  protected static Configuration conf;
-  protected static MiniDFSCluster cluster = null;
-  protected static FileSystem fs;
-  protected static NameNode nn;
-  protected static FSImage fsImage;
-  protected static DataNode dn;
-  protected static FsDatasetSpi<?> fsd;
-  protected static DatanodeProtocolClientSideTranslatorPB spyNN;
+  private static Configuration conf;
+  private static MiniDFSCluster cluster = null;
+  private static FileSystem fs;
+  private static NameNode nn;
+  private static FSImage fsImage;
+  private static DataNode dn;
+  private static FsDatasetSpi<?> fsd;
+  private static DatanodeProtocolClientSideTranslatorPB spyNN;
   /**
    * Used to pause DN BPServiceActor threads. BPSA threads acquire the
    * shared read lock. The test acquires the write lock for exclusive access.
    */
   private static ReadWriteLock lock = new ReentrantReadWriteLock(true);
   private static final PageRounder rounder = new PageRounder();
-  protected static CacheManipulator prevCacheManipulator;
+  private static CacheManipulator prevCacheManipulator;
   private static DataNodeFaultInjector oldInjector;
 
   static {
@@ -149,6 +149,9 @@ public class TestFsDatasetCache {
     DataNodeFaultInjector.set(oldInjector);
   }
 
+  protected void postSetupConf(Configuration conf) {
+  }
+
   @Before
   public void setUp() throws Exception {
     conf = new HdfsConfiguration();
@@ -160,6 +163,7 @@ public class TestFsDatasetCache {
         CACHE_CAPACITY);
     conf.setLong(DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_KEY, 1);
     conf.setInt(DFS_DATANODE_FSDATASETCACHE_MAX_THREADS_PER_VOLUME_KEY, 10);
+    postSetupConf(conf);
 
     prevCacheManipulator = NativeIO.POSIX.getCacheManipulator();
     NativeIO.POSIX.setCacheManipulator(new NoMlockCacheManipulator());
@@ -177,6 +181,17 @@ public class TestFsDatasetCache {
     spyNN = InternalDataNodeTestUtils.spyOnBposToNN(dn, nn);
   }
 
+  protected static MiniDFSCluster getCluster() {
+    return cluster;
+  }
+
+  protected static void shutdownCluster() {
+    if (cluster != null) {
+      cluster.shutdown();
+      cluster = null;
+    }
+  }
+
   @After
   public void tearDown() throws Exception {
     // Verify that each test uncached whatever it cached.  This cleanup is
@@ -186,10 +201,7 @@ public class TestFsDatasetCache {
       fs.close();
       fs = null;
     }
-    if (cluster != null) {
-      cluster.shutdown();
-      cluster = null;
-    }
+    shutdownCluster();
     // Restore the original CacheManipulator
     NativeIO.POSIX.setCacheManipulator(prevCacheManipulator);
   }

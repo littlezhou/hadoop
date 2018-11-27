@@ -50,43 +50,21 @@ public class TestFsDatasetPmemCache extends TestFsDatasetCache {
     LogManager.getLogger(FsDatasetCache.class).setLevel(Level.DEBUG);
   }
 
+  @Override
+  protected void postSetupConf(Configuration conf) {
+    conf.set(DFS_DATANODE_CACHE_PMEM_DIR_KEY, "/mnt/pmem0");
+  }
+
   @Before
   @Override
   public void setUp() throws Exception {
     Assume.assumeTrue(NativeCodeLoader.isNativeCodeLoaded());
-    conf = new HdfsConfiguration();
-    conf.setLong(
-        DFSConfigKeys.DFS_NAMENODE_PATH_BASED_CACHE_REFRESH_INTERVAL_MS, 100);
-    conf.setLong(DFSConfigKeys.DFS_CACHEREPORT_INTERVAL_MSEC_KEY, 500);
-    conf.setLong(DFSConfigKeys.DFS_BLOCK_SIZE_KEY, BLOCK_SIZE);
-    conf.setLong(DFSConfigKeys.DFS_DATANODE_MAX_LOCKED_MEMORY_KEY,
-        CACHE_CAPACITY);
-    conf.setLong(DFSConfigKeys.DFS_HEARTBEAT_INTERVAL_KEY, 1);
-    conf.setInt(DFS_DATANODE_FSDATASETCACHE_MAX_THREADS_PER_VOLUME_KEY, 10);
-    conf.set(DFS_DATANODE_CACHE_PMEM_DIR_KEY, "/mnt/pmem0");
-
-    prevCacheManipulator = NativeIO.POSIX.getCacheManipulator();
-    NativeIO.POSIX.setCacheManipulator(new NoMlockCacheManipulator());
-
-    cluster = new MiniDFSCluster.Builder(conf)
-        .numDataNodes(1).build();
-    cluster.waitActive();
-
-    fs = cluster.getFileSystem();
-    nn = cluster.getNameNode();
-    fsImage = nn.getFSImage();
-    dn = cluster.getDataNodes().get(0);
-    fsd = dn.getFSDataset();
-
-    spyNN = InternalDataNodeTestUtils.spyOnBposToNN(dn, nn);
+    super.setUp();
   }
 
   @Test
   public void testPmemConfiguration() throws Exception {
-    if(cluster != null) {
-      cluster.shutdown();
-      cluster = null;
-    }
+    shutdownCluster();
 
     Configuration myConf = new HdfsConfiguration();
     myConf.setLong(DFSConfigKeys.DFS_DATANODE_MAX_LOCKED_MEMORY_KEY,
