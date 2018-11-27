@@ -102,8 +102,10 @@ public class NativeIO {
 
     /* Denotes the state of supporting PMDK:
            < 0, native code build without PMDK support
-           > 0, supported by native code, but PMDK dynamic library NOT found in execution environment or failed to be loaded
-           ==0, ready for use, supported by native code, and PMDK library loaded successfully
+           > 0, supported by native code, but PMDK dynamic library NOT found in
+                execution environment or failed to be loaded
+           ==0, ready for use, supported by native code, and PMDK library
+                loaded successfully
        The value is set by JNI. */
     public static int PMDK_SUPPORT_STATE = -1;
 
@@ -135,6 +137,9 @@ public class NativeIO {
       return PMDK_SUPPORT_STATE == 0;
     }
 
+    /**
+     * Denote memory region for a file mapped.
+     */
     public static class PmemMappedRegion {
       private long address;
       private long length;
@@ -159,6 +164,9 @@ public class NativeIO {
       }
     }
 
+    /**
+     * JNI wrapper of persist memory operations.
+     */
     public static class Pmem {
       // check whether the address is a Pmem address or DIMM address
       public static boolean isPmem(long address, long length) {

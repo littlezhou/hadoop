@@ -50,7 +50,6 @@ import org.apache.commons.lang3.time.DurationFormatUtils;
 import org.apache.hadoop.classification.InterfaceAudience;
 import org.apache.hadoop.classification.InterfaceStability;
 import org.apache.hadoop.fs.ChecksumException;
-import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.ExtendedBlockId;
 import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.protocol.BlockListAsLongs;
@@ -226,6 +225,11 @@ public class FsDatasetCache {
     }
   }
 
+  /**
+   * Manage the non-volatile storage class memory cache volumes.
+   *
+   * // TODO: Refine persistent location considering storage utilization
+   */
   public static class PmemVolumeManager {
     private final ArrayList<String> pmemVolumes = new ArrayList<String>();
     // It's not a strict atomic operation for the performance sake.
@@ -315,7 +319,8 @@ public class FsDatasetCache {
     String[] pmemVolumes = dataset.datanode.getDnConf().getPmemVolumes();
     if (pmemVolumes != null && pmemVolumes.length != 0) {
       if (!NativeIO.isAvailable() || !NativeIO.POSIX.isPmemAvailable()) {
-        throw new IOException("Persistent memory storage configured, but not available!");
+        throw new IOException("Persistent memory storage configured, " +
+            "but not available!");
       }
       this.pmemManager = new PmemVolumeManager();
       this.pmemManager.load(pmemVolumes);

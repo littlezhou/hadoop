@@ -40,7 +40,9 @@ import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.fail;
 
-
+/**
+ * Test HDFS cache using non-volatile storage class memory.
+ */
 @NotThreadSafe
 public class TestFsDatasetPmemCache extends TestFsDatasetCache {
 

@@ -127,7 +127,7 @@ public class FsDatasetUtil {
       }
       return Channels.newInputStream(raf.getChannel());
     } catch(IOException ioe) {
-      IOUtils.cleanup(null, raf);
+      IOUtils.cleanupWithLogger(null, raf);
       throw ioe;
     }
   }

@@ -86,9 +86,11 @@ static jmethodID nioe_ctor;
 // Please see HADOOP-7156 for details.
 jobject pw_lock_object;
 
+#ifdef HADOOP_PMDK_LIBRARY
 // the NativeIO$POSIX$PmemMappedRegion inner class and its constructor
 static jclass pmem_region_clazz = NULL;
 static jmethodID pmem_region_ctor = NULL;
+#endif
 
 /*
  * Throw a java.IO.IOException, generating the message from errno.
@@ -1471,6 +1473,7 @@ JNIEnv *env, jclass thisClass, jlong address, jlong length) {
   #else
     THROW(env, "java/lang/UnsupportedOperationException",
         "The function isPmemCheck is not supported.");
+    return JNI_FALSE;
   #endif
   }
 
@@ -1532,6 +1535,7 @@ JNIEnv *env, jclass thisClass, jstring filePath, jlong fileLength) {
   #else
     THROW(env, "java/lang/UnsupportedOperationException",
         "The function pmemCreateMapFile is not supported.");
+    return NULL;
   #endif
   }
 
@@ -1557,6 +1561,7 @@ JNIEnv *env, jclass thisClass, jlong address, jlong length) {
   #else
     THROW(env, "java/lang/UnsupportedOperationException",
         "The function pmemUnMap is not supported.");
+    return JNI_FALSE;
   #endif
   }
 
