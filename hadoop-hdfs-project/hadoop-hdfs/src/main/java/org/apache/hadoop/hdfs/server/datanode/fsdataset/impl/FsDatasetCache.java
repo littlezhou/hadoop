@@ -320,7 +320,7 @@ public class FsDatasetCache {
     if (pmemVolumes != null && pmemVolumes.length != 0) {
       if (!NativeIO.isAvailable() || !NativeIO.POSIX.isPmemAvailable()) {
         throw new IOException("Persistent memory storage configured, " +
-            "but not available!");
+            "but not available (" + NativeIO.POSIX.PMDK_SUPPORT_STATE + ").");
       }
       this.pmemManager = new PmemVolumeManager();
       this.pmemManager.load(pmemVolumes);
