@@ -24,8 +24,6 @@ import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.impl.FsDatasetCache;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.impl.FsDatasetImpl;
-import org.apache.hadoop.io.nativeio.NativeIO;
-import org.apache.hadoop.io.nativeio.NativeIO.POSIX.NoMlockCacheManipulator;
 import org.apache.hadoop.util.NativeCodeLoader;
 import org.apache.log4j.Level;
 import org.apache.log4j.LogManager;
@@ -34,7 +32,6 @@ import org.junit.Assume;
 import org.junit.Test;
 
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_DATANODE_CACHE_PMEM_DIR_KEY;
-import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_DATANODE_FSDATASETCACHE_MAX_THREADS_PER_VOLUME_KEY;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -51,8 +48,8 @@ public class TestFsDatasetPmemCache extends TestFsDatasetCache {
   }
 
   @Override
-  protected void postSetupConf(Configuration conf) {
-    conf.set(DFS_DATANODE_CACHE_PMEM_DIR_KEY, "/mnt/pmem0");
+  protected void postSetupConf(Configuration config) {
+    config.set(DFS_DATANODE_CACHE_PMEM_DIR_KEY, "/mnt/pmem0");
   }
 
   @Before

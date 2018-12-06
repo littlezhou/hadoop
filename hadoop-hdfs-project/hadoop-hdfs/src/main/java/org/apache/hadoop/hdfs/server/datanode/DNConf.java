@@ -254,7 +254,6 @@ public class DNConf {
         DFS_DATANODE_MAX_LOCKED_MEMORY_KEY,
         DFS_DATANODE_MAX_LOCKED_MEMORY_DEFAULT);
 
-    // Storage class memory directories.
     pmemDirs = getConf().getTrimmedStrings(DFS_DATANODE_CACHE_PMEM_DIR_KEY);
 
     this.restartReplicaExpiry = getConf().getLong(

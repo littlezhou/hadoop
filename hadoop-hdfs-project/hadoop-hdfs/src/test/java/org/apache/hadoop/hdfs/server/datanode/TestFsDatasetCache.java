@@ -149,7 +149,7 @@ public class TestFsDatasetCache {
     DataNodeFaultInjector.set(oldInjector);
   }
 
-  protected void postSetupConf(Configuration conf) {
+  protected void postSetupConf(Configuration config) {
   }
 
   @Before
