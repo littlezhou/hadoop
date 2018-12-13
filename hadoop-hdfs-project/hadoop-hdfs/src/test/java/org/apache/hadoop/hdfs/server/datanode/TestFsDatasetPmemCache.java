@@ -71,7 +71,6 @@ public class TestFsDatasetPmemCache extends TestFsDatasetCache {
     // Test if Pmem cache enabled
     skipPmemCacheTest = false;
     try {
-      System.out.println("PMEM_IS_PMEM_FORCE = " + System.getenv("PMEM_IS_PMEM_FORCE"));
       PmemVolumeManager.verifyIfValidPmemVolume(new File(PMEM_DIR));
     } catch (Throwable t) {
       LogManager.getLogger(FsDatasetCache.class).warn(
