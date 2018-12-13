@@ -23,6 +23,7 @@ import org.apache.hadoop.hdfs.DFSConfigKeys;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hdfs.MiniDFSCluster;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.impl.FsDatasetCache;
+import org.apache.hadoop.hdfs.server.datanode.fsdataset.impl.FsDatasetCache.PmemVolumeManager;
 import org.apache.hadoop.hdfs.server.datanode.fsdataset.impl.FsDatasetImpl;
 import org.apache.hadoop.util.NativeCodeLoader;
 import org.apache.log4j.Level;
@@ -30,6 +31,8 @@ import org.apache.log4j.LogManager;
 import org.junit.Before;
 import org.junit.Assume;
 import org.junit.Test;
+
+import java.io.File;
 
 import static org.apache.hadoop.hdfs.DFSConfigKeys.DFS_DATANODE_CACHE_PMEM_DIR_KEY;
 import static org.junit.Assert.assertEquals;
@@ -42,6 +45,10 @@ import static org.junit.Assert.fail;
  */
 @NotThreadSafe
 public class TestFsDatasetPmemCache extends TestFsDatasetCache {
+  private static String PMEM_DIR = "/mnt/pmem0";
+
+  // Skip the test if pmem volume not available
+  private boolean skipPmemCacheTest = false;
 
   static {
     LogManager.getLogger(FsDatasetCache.class).setLevel(Level.DEBUG);
@@ -49,19 +56,45 @@ public class TestFsDatasetPmemCache extends TestFsDatasetCache {
 
   @Override
   protected void postSetupConf(Configuration config) {
-    config.set(DFS_DATANODE_CACHE_PMEM_DIR_KEY, "/mnt/pmem0");
+    config.set(DFS_DATANODE_CACHE_PMEM_DIR_KEY, PMEM_DIR);
+  }
+
+  @Override
+  protected boolean skipPmemCacheTest() {
+    return skipPmemCacheTest;
   }
 
   @Before
   @Override
   public void setUp() throws Exception {
     Assume.assumeTrue(NativeCodeLoader.isNativeCodeLoaded());
+    // Test if Pmem cache enabled
+    skipPmemCacheTest = false;
+    try {
+      System.out.println("PMEM_IS_PMEM_FORCE = " + System.getenv("PMEM_IS_PMEM_FORCE"));
+      PmemVolumeManager.verifyIfValidPmemVolume(new File(PMEM_DIR));
+    } catch (Throwable t) {
+      LogManager.getLogger(FsDatasetCache.class).warn(
+          "Skip Pmem Cache test due to: " + t.getMessage());
+      skipPmemCacheTest = true;
+    }
     super.setUp();
   }
 
   @Test
   public void testPmemConfiguration() throws Exception {
     shutdownCluster();
+
+    String pmem0 = "/mnt/pmem0";
+    String pmem1 = "/mnt/pmem1";
+    try {
+      PmemVolumeManager.verifyIfValidPmemVolume(new File(pmem0));
+      PmemVolumeManager.verifyIfValidPmemVolume(new File(pmem1));
+    } catch (Throwable t) {
+      LogManager.getLogger(FsDatasetCache.class).warn(
+          "Skip Pmem Cache test due to: " + t.getMessage());
+      return;
+    }
 
     Configuration myConf = new HdfsConfiguration();
     myConf.setLong(DFSConfigKeys.DFS_DATANODE_MAX_LOCKED_MEMORY_KEY,
@@ -77,7 +110,6 @@ public class TestFsDatasetPmemCache extends TestFsDatasetCache {
     myCluster.shutdown();
 
     // One Pmem directory is set
-    String pmem0 = "/mnt/pmem0";
     myConf.set(DFS_DATANODE_CACHE_PMEM_DIR_KEY, pmem0);
     myCluster = new MiniDFSCluster.Builder(myConf)
         .numDataNodes(1).build();
@@ -88,7 +120,6 @@ public class TestFsDatasetPmemCache extends TestFsDatasetCache {
     myCluster.shutdown();
 
     // Two Pmem directories are set
-    String pmem1 = "/mnt/pmem1";
     myConf.set(DFS_DATANODE_CACHE_PMEM_DIR_KEY, pmem0 + "," + pmem1);
     myCluster = new MiniDFSCluster.Builder(myConf)
         .numDataNodes(1).build();

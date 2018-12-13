@@ -36,6 +36,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map.Entry;
+import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ThreadFactory;
@@ -56,6 +57,8 @@ import org.apache.hadoop.hdfs.protocol.BlockListAsLongs;
 import org.apache.hadoop.hdfs.protocol.ExtendedBlock;
 import org.apache.hadoop.hdfs.server.datanode.DatanodeUtil;
 import org.apache.hadoop.io.nativeio.NativeIO;
+import org.apache.hadoop.io.nativeio.NativeIO.POSIX.Pmem;
+import org.apache.hadoop.io.nativeio.NativeIO.POSIX.PmemMappedRegion;
 import org.apache.hadoop.util.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -236,23 +239,58 @@ public class FsDatasetCache {
     private int index = 0;
     private int count = 0;
 
-    public void load(String[] volumes) {
+    public void load(String[] volumes) throws IOException {
       // Check does the directory exist
-      // TODO: Check the volumes that it's really a persistent memory storage
       for (String location: volumes) {
         try {
+          File locFile = new File(location);
+          verifyIfValidPmemVolume(locFile);
           // Remove all files under the volume. Files may been left after a
           // unexpected data node restart.
-          FileUtils.cleanDirectory(new File(location));
-        } catch (Throwable e) {
-          LOG.warn("Fail to parse persistent memory location " + location +
+          FileUtils.cleanDirectory(locFile);
+        } catch (IllegalArgumentException e) {
+          LOG.error("Fail to parse persistent memory location " + location +
               " for " + e.getMessage());
-          continue;
+          throw new IOException(e);
         }
         pmemVolumes.add(location);
         LOG.info("Added persistent memory - " + location);
       }
       count = pmemVolumes.size();
+    }
+
+    public static void verifyIfValidPmemVolume(File pmemDir)
+        throws IOException {
+      if (!pmemDir.exists()) {
+        final String message = pmemDir + " does not exist";
+        throw new IOException(message);
+      }
+
+      if (!pmemDir.isDirectory()) {
+        final String message = pmemDir + " is not a directory";
+        throw new IllegalArgumentException(message);
+      }
+
+      String uuidStr = UUID.randomUUID().toString();
+      String testFile = pmemDir.getPath() + "/.pmem.verify." + uuidStr;
+      byte[] contents = uuidStr.getBytes("UTF-8");
+      PmemMappedRegion region = null;
+      try {
+        region = Pmem.mapBlock(testFile, contents.length);
+        if (region == null) {
+          throw new IOException("Fail to map into persistent storage.");
+        }
+        Pmem.memCopy(contents, region.getAddress(), region.isPmem(),
+            contents.length);
+        Pmem.memSync(region);
+      } catch (Throwable t) {
+        throw new IOException(t);
+      } finally {
+        if (region != null) {
+          Pmem.unmapBlock(region.getAddress(), region.getLength());
+          new File(testFile).delete();
+        }
+      }
     }
 
     /**
