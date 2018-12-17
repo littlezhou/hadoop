@@ -272,7 +272,7 @@ public class FsDatasetCache {
       }
 
       String uuidStr = UUID.randomUUID().toString();
-      String testFile = pmemDir.getPath() + "/.pmem.verify." + uuidStr;
+      String testFile = pmemDir.getPath() + "/.verify.pmem." + uuidStr;
       byte[] contents = uuidStr.getBytes("UTF-8");
       PmemMappedRegion region = null;
       try {
@@ -288,7 +288,17 @@ public class FsDatasetCache {
       } finally {
         if (region != null) {
           Pmem.unmapBlock(region.getAddress(), region.getLength());
-          new File(testFile).delete();
+          boolean deled = false;
+          String reason = null;
+          try {
+            deled = new File(testFile).delete();
+          } catch (Throwable t) {
+            reason = t.getMessage();
+          }
+          if (!deled) {
+            LOG.warn("Failed to delete persistent memory test file " +
+                testFile + (reason == null ? "" : " due to: " + reason));
+          }
         }
       }
     }
